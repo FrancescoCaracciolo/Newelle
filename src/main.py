@@ -12,6 +12,7 @@ from .ui.shortcuts import Shortcuts
 from .ui.thread_editing import ThreadEditing
 from .ui.extension import Extension
 from .ui.mini_window import MiniWindow
+from .cli import NewelleCLI
 
 
 class MyApp(Adw.Application):
@@ -19,7 +20,34 @@ class MyApp(Adw.Application):
         self.version = version
         super().__init__(flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE, **kwargs)
         self.settings = Gio.Settings.new("io.github.qwersyk.Newelle")
+        
+        # Existing action option
         self.add_main_option("run-action", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Run an action", "ACTION")
+        
+        # CLI options for sending messages
+        self.add_main_option("cli-send", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Send a message to LLM", "MESSAGE")
+        self.add_main_option("cli-chat", 0, GLib.OptionFlags.NONE, GLib.OptionArg.INT, "Chat ID to send message to", "ID")
+        self.add_main_option("cli-model", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Model to use (overrides setting)", "MODEL")
+        self.add_main_option("cli-provider", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Provider to use (overrides setting)", "PROVIDER")
+        self.add_main_option("cli-profile", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Profile to use (overrides setting)", "PROFILE")
+        self.add_main_option("cli-stream", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "Stream response", None)
+        self.add_main_option("cli-no-tools", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "Disable tools", None)
+        
+        # CLI options for listing
+        self.add_main_option("cli-list-profiles", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "List all profiles", None)
+        self.add_main_option("cli-list-tts", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "List TTS engines", None)
+        self.add_main_option("cli-list-stt", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "List STT engines", None)
+        self.add_main_option("cli-list-models", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "List LLM models/providers", None)
+        self.add_main_option("cli-list-chats", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "List all chats", None)
+        self.add_main_option("cli-list-settings", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "List settings (all or specific group)", "GROUP")
+        
+        # CLI options for settings
+        self.add_main_option("cli-set-setting", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Change a setting", "KEY")
+        self.add_main_option("cli-setting-value", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Setting value", "VALUE")
+        self.add_main_option("cli-set-profile", 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, "Change current profile", "PROFILE")
+        
+        # CLI output format
+        self.add_main_option("cli-json", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, "Output as JSON", None)
         css = '''
         .code{
         background-color: rgb(38,38,38);
@@ -226,6 +254,12 @@ class MyApp(Adw.Application):
     
     def do_command_line(self, command_line):
         options = command_line.get_options_dict()
+        
+        # Check for CLI mode flags (don't require GUI)
+        if self._check_and_run_cli_mode(options, command_line):
+            return 0
+            
+        # Existing action handling
         if options.contains("run-action"):
             action_name = options.lookup_value("run-action").get_string()
             if self.lookup_action(action_name):
@@ -236,6 +270,171 @@ class MyApp(Adw.Application):
         
         self.activate()
         return 0
+
+    def _check_and_run_cli_mode(self, options, command_line):
+        """Check if CLI mode is requested and run CLI commands"""
+        # List CLI flags that indicate CLI mode
+        cli_flags = [
+            'cli-send', 'cli-list-profiles', 'cli-list-tts', 
+            'cli-list-stt', 'cli-list-models', 'cli-list-settings',
+            'cli-list-chats', 'cli-set-setting', 'cli-set-profile'
+        ]
+        
+        for flag in cli_flags:
+            if options.contains(flag):
+                # CLI mode detected
+                return self._run_cli_mode(options, command_line)
+        
+        return False
+
+    def _run_cli_mode(self, options, command_line):
+        """Run in CLI mode without GUI"""
+        try:
+            cli = NewelleCLI()
+            
+            # Parse CLI arguments from options
+            args = {}
+            
+            if options.contains("cli-send"):
+                message = options.lookup_value("cli-send").get_string()
+                chat_id = options.lookup_value("cli-chat").get_int32() if options.contains("cli-chat") else None
+                model = options.lookup_value("cli-model").get_string() if options.contains("cli-model") else None
+                provider = options.lookup_value("cli-provider").get_string() if options.contains("cli-provider") else None
+                profile = options.lookup_value("cli-profile").get_string() if options.contains("cli-profile") else None
+                stream = options.contains("cli-stream")
+                no_tools = options.contains("cli-no-tools")
+                
+                response = cli.send_message(
+                    message=message,
+                    chat_id=chat_id,
+                    model=model,
+                    provider=provider,
+                    profile=profile,
+                    stream=stream,
+                    with_tools=not no_tools
+                )
+                if not stream:
+                    print(response)
+                return True
+                
+            elif options.contains("cli-list-profiles"):
+                data = cli.list_profiles()
+                self._print_cli_output(data, options)
+                return True
+                
+            elif options.contains("cli-list-tts"):
+                data = cli.list_tts()
+                self._print_cli_output(data, options)
+                return True
+                
+            elif options.contains("cli-list-stt"):
+                data = cli.list_stt()
+                self._print_cli_output(data, options)
+                return True
+                
+            elif options.contains("cli-list-models"):
+                data = cli.list_models()
+                self._print_cli_output(data, options)
+                return True
+                
+            elif options.contains("cli-list-settings"):
+                group = options.lookup_value("cli-list-settings").get_string() if options.lookup_value("cli-list-settings") is not None else None
+                if group == "":
+                    group = None
+                data = cli.list_settings(group)
+                self._print_cli_output(data, options)
+                return True
+                
+            elif options.contains("cli-list-chats"):
+                data = cli.list_chats()
+                self._print_cli_output(data, options)
+                return True
+                
+            elif options.contains("cli-set-setting"):
+                key = options.lookup_value("cli-set-setting").get_string()
+                value = options.lookup_value("cli-setting-value").get_string()
+                cli.change_setting(key, value)
+                return True
+                
+            elif options.contains("cli-set-profile"):
+                profile = options.lookup_value("cli-set-profile").get_string()
+                cli.change_profile(profile)
+                return True
+                
+        except Exception as e:
+            command_line.printerr(f"CLI Error: {e}\n")
+            import traceback
+            traceback.print_exc()
+            return 1
+        
+        return False
+
+    def _print_cli_output(self, data, options):
+        """Print CLI output in specified format"""
+        use_json = options.contains("cli-json")
+        
+        if use_json:
+            import json
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+        else:
+            # Format as text
+            self._format_text_output(data)
+
+    def _format_text_output(self, data):
+        """Format data as readable text"""
+        if isinstance(data, dict):
+            if "profiles" in data:
+                # List profiles
+                print(f"Current profile: {data['current']}\n")
+                print("Available profiles:")
+                for profile in data["profiles"]:
+                    current_marker = " (current)" if profile["name"] == data["current"] else ""
+                    print(f"  - {profile['name']}{current_marker}")
+                    print(f"    Settings groups: {', '.join(profile['settings_groups']) or 'None'}")
+                    if profile["has_picture"]:
+                        print(f"    Has picture: Yes")
+                    print()
+            elif "groups" in data:
+                # List settings
+                for group in data["groups"]:
+                    print(f"{group['name']}: {group['title']}")
+                    print(f"  {group['description']}")
+                    print("  Settings:")
+                    for setting in group["settings"]:
+                        if "error" in setting:
+                            print(f"    - {setting['key']}: ERROR - {setting['error']}")
+                        else:
+                            print(f"    - {setting['key']}: {setting['value']}")
+                    print()
+            elif "chats" in data:
+                # List chats
+                print(f"Current chat ID: {data['current_chat_id']}\n")
+                print("Available chats:")
+                for chat in data["chats"]:
+                    current_marker = " (current)" if chat["is_current"] else ""
+                    print(f"  - [{chat['id']}] {chat['name']}{current_marker}")
+                    print(f"    Messages: {chat['message_count']}")
+                    print()
+            else:
+                # Generic dict
+                for key, value in data.items():
+                    print(f"{key}: {value}")
+        elif isinstance(data, list):
+            # List of items (TTS, STT, models)
+            if data and "key" in data[0]:
+                # These are handler items
+                for item in data:
+                    title = item.get("title", "")
+                    description = item.get("description", "")
+                    secondary = " (secondary)" if item.get("secondary", False) else ""
+                    print(f"  - {item['key']}: {title}{secondary}")
+                    print(f"    {description}")
+                    print()
+            else:
+                for item in data:
+                    print(f"  - {item}")
+        else:
+            print(data)
 
     def on_activate(self, app):
         if not hasattr(self,"win"):
