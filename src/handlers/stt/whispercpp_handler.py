@@ -10,6 +10,7 @@ import threading
 import time
 import shutil
 import json
+import socket
 from gi.repository import Gtk, Adw, GLib, Gdk
 import requests
 
@@ -44,6 +45,7 @@ class WhisperCPPHandler(STTHandler):
         self._process_lock = threading.Lock()
         self._current_model = None
         self._use_server = False
+        self._server_port = None
         self.whisper_cpp_path = os.path.join(self.path, "whisper", "whisper.cpp")
         self.whisper_server_path = os.path.join(self.whisper_cpp_path, "build", "bin", "whisper-server")
         self.model_folder = os.path.join(self.whisper_cpp_path, "models")
@@ -195,17 +197,22 @@ class WhisperCPPHandler(STTHandler):
             self.throw("Error installing Whisper: " + out.decode("utf-8"), ErrorSeverity.ERROR)
         self._is_installed_cache = None
 
+    @staticmethod
+    def _find_free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
     def _start_process(self):
         """Start the persistent whisper-server process with model loaded"""
         with self._process_lock:
             model_name = self.get_setting("model")
 
-            # If process exists but model changed, restart it
             if self._process is not None:
                 if self._current_model != model_name or self._process.poll() is not None:
                     self._stop_process()
                 else:
-                    return  # Process already running with correct model
+                    return
 
             path = os.path.join(self.path, "whisper")
 
@@ -241,11 +248,11 @@ class WhisperCPPHandler(STTHandler):
             model_path = os.path.join(self.model_folder, "ggml-" + model_name + ".bin")
 
             if self._use_server:
-                # Start whisper-server on localhost:8080
+                self._server_port = self._find_free_port()
                 cmd.extend([
                     "-m", model_path,
                     "--host", "127.0.0.1",
-                    "--port", "8080",
+                    "--port", str(self._server_port),
                     "-l", self.get_setting("language"),
                 ])
                 try:
@@ -330,7 +337,7 @@ class WhisperCPPHandler(STTHandler):
 
             body = b'\r\n'.join(body)
 
-            url = "http://127.0.0.1:8080/inference"
+            url = f"http://127.0.0.1:{self._server_port}/inference"
             headers = {
                 'Content-Type': f'multipart/form-data; boundary={boundary}',
                 'Content-Length': str(len(body))

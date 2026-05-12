@@ -1765,7 +1765,7 @@ class NewelleController:
                     msg_uuid = int(uuid_lib.uuid4())
                     current_history.append({"User": "Assistant", "Message": text_content, "UUID": msg_uuid})
                     if save_chat:
-                        self.chats[chat_id]["chat"].append({"User": "Assistant", "Message": response, "UUID": msg_uuid})
+                        self.chats[chat_id]["chat"].append({"User": "Assistant", "Message": response, "UUID": msg_uuid, "Profile": self.newelle_settings.current_profile})
                         self.save_chats()
                     return text_content
                 assistant_msg_uuid = int(uuid_lib.uuid4())
@@ -1822,7 +1822,8 @@ class NewelleController:
                         self.chats[chat_id]["chat"].append({
                             "User": "Assistant",
                             "Message": tool_call_msg,
-                            "UUID": assistant_msg_uuid
+                            "UUID": assistant_msg_uuid,
+                            "Profile": self.newelle_settings.current_profile
                         })
                         self.chats[chat_id]["chat"].append({
                             "User": "Console",
@@ -1832,7 +1833,7 @@ class NewelleController:
             
             if save_chat:
                 msg_uuid = int(uuid_lib.uuid4())
-                self.chats[chat_id]["chat"].append({"User": "Assistant", "Message": text_content, "UUID": msg_uuid})
+                self.chats[chat_id]["chat"].append({"User": "Assistant", "Message": text_content, "UUID": msg_uuid, "Profile": self.newelle_settings.current_profile})
                 self.save_chats()
             return text_content
         finally:
@@ -2240,10 +2241,16 @@ class HandlersManager:
             if not skip_auto_start_interfaces:
                 enabled = interface.get_setting("enabled", False, False) 
                 if enabled:
+                    if Interface.check_external_running(key, self.directory):
+                        print(f"Interface '{key}' is already running externally, skipping auto-start")
+                    else:
+                        print("Interface started")
+                        interface.start()
                     print("Interface started")
                     interface.start()
         self.avatar : AvatarHandler = self.get_object(AVAILABLE_AVATARS, newelle_settings.avatar)
         self.translator : TranslatorHandler = self.get_object(AVAILABLE_TRANSLATORS, newelle_settings.translator)
+
         # Assign handlers 
         self.integrationsloader.set_handlers(self.llm, self.stt, self.tts, self.secondary_llm, self.embedding, self.rag, self.memory, self.websearch)
         self.extensionloader.set_handlers(self.llm, self.stt, self.tts, self.secondary_llm, self.embedding, self.rag, self.memory, self.websearch)
