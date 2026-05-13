@@ -2495,6 +2495,8 @@ class Settings(Adw.PreferencesWindow):
             setting_name = "rag-model"
         elif constants == AVAILABLE_WEBSEARCH:
             setting_name = "websearch-model"
+        elif constants == AVAILABLE_IMAGE_GENERATORS:
+            setting_name = "image-generator"
         else:
             return
 
