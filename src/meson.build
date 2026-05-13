@@ -111,6 +111,8 @@ widgets_sources = [
   'ui/widgets/chat_tab.py',
   'ui/widgets/call.py',
   'ui/widgets/question.py',
+  'ui/widgets/image_generator.py',
+  'ui/widgets/image_generator_mini_app.py',
 ]
 
 handler_sources = [
@@ -204,6 +206,12 @@ websearch_sources = [
   'handlers/websearch/tinyfish_handler.py',
   ]
 
+image_generator_sources = [
+  'handlers/image_generator/__init__.py',
+  'handlers/image_generator/image_generator.py',
+  'handlers/image_generator/pollinations_handler.py',
+  ]
+
 interface_sources = [
   'handlers/interfaces/__init__.py',
   'handlers/interfaces/interface.py',
@@ -249,4 +257,5 @@ install_data(websearch_sources, install_dir: moduledir / 'handlers' / 'websearch
 install_data(interface_sources, install_dir: moduledir / 'handlers' / 'interfaces')
 install_data(utility_sources, install_dir: moduledir / 'utility')
 install_data(integrations_sources, install_dir: moduledir / 'integrations')
+install_data(image_generator_sources, install_dir: moduledir / 'handlers' / 'image_generator')
 

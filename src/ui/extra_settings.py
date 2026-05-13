@@ -32,13 +32,15 @@ class ExtraSettingsBuilder:
         settings: list | None = None,
     ):
         if nested_settings is None:
-            row_key = (handler.key, self.convert_constants(constants), handler.is_secondary())
-            if row_key not in self.settingsrows:
-                self.settingsrows[row_key] = {}
-            self.settingsrows[row_key]["extra_settings"] = []
             settings_to_render = settings if settings is not None else handler.get_extra_settings()
         else:
             settings_to_render = nested_settings
+
+        row_key = (handler.key, self.convert_constants(constants), handler.is_secondary())
+        if row_key not in self.settingsrows:
+            self.settingsrows[row_key] = {"extra_settings": []}
+        if "extra_settings" not in self.settingsrows[row_key]:
+            self.settingsrows[row_key]["extra_settings"] = []
 
         for setting in settings_to_render:
             setting_row = self.create_extra_setting(setting, handler, constants)
