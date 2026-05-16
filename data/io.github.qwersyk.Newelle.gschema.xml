@@ -294,6 +294,8 @@
         </key>
         <key name="image-generator-settings" type="s">
             <default>"{}"</default>
+        <key name="hide-warning" type="b">
+            <default>false</default>
         </key>
 	</schema>
 </schemalist>

@@ -210,6 +210,7 @@ image_generator_sources = [
   'handlers/image_generator/__init__.py',
   'handlers/image_generator/image_generator.py',
   'handlers/image_generator/pollinations_handler.py',
+  'handlers/image_generator/stablediffusion_cpp_handler.py',
   ]
 
 interface_sources = [

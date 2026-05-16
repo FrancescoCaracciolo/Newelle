@@ -1948,6 +1948,7 @@ class NewelleSettings:
         self.monospace_line_height = settings.get_double("monospace-line-height")
         self.image_generator = self.settings.get_string("image-generator")
         self.image_generator_settings = self.settings.get_string("image-generator-settings")
+        self.hide_warning = settings.get_boolean("hide-warning")
         self.load_prompts()
         # Adjust paths
         if os.path.exists(os.path.expanduser(self.main_path)):
@@ -2071,6 +2072,8 @@ class NewelleSettings:
             reloads.append(ReloadType.OFFERS)
         if self.image_generator != new_settings.image_generator or self.image_generator_settings != new_settings.image_generator_settings:
             reloads.append(ReloadType.IMAGE_GENERATOR)
+        if self.hide_warning != new_settings.hide_warning:
+            reloads.append(ReloadType.RELOAD_CHAT)
 
         return reloads
 
