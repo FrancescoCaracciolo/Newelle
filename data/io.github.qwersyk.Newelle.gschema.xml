@@ -289,6 +289,12 @@
         <key name="monospace-line-height" type="d">
             <default>1.45</default>
         </key>
+        <key name="image-generator" type="s">
+            <default>"pollinations"</default>
+        </key>
+        <key name="image-generator-settings" type="s">
+            <default>"{}"</default>
+        </key>    
         <key name="hide-warning" type="b">
             <default>false</default>
         </key>

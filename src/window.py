@@ -422,6 +422,7 @@ class MainWindow(Adw.ApplicationWindow):
             (_("Terminal Tab"), "gnome-terminal-symbolic", self.add_terminal_tab),
             (_("Browser Tab"), "internet-symbolic", self.add_browser_tab),
             (_("Start Call"), "call-start-symbolic", self.start_call_tab),
+            (_("Image Generator"), "insert-image-symbolic", self.add_image_generator_tab),
         ]
         menu_entries += self.extensionloader.get_add_tab_buttons()
         
@@ -2950,6 +2951,19 @@ class MainWindow(Adw.ApplicationWindow):
         self.show_sidebar()
         self.canvas_tabs.set_selected_page(tab)
         return tab 
+
+    def add_image_generator_tab(self, tabview=None, file=None):
+        from .constants import AVAILABLE_IMAGE_GENERATORS
+        handler = self.controller.handlers.image_generator
+        if handler is None:
+            return
+        mini_app = handler.get_mini_app(AVAILABLE_IMAGE_GENERATORS)
+        tab = self.canvas_tabs.append(mini_app)
+        tab.set_title(_("Image Generator"))
+        tab.set_icon(Gio.ThemedIcon(name="insert-image-symbolic"))
+        self.show_sidebar()
+        self.canvas_tabs.set_selected_page(tab)
+        return tab
 
     def edit_copybox(self, id_message, id_codeblock, new_content, editor=None):
         message_content = self.chat[id_message]["Message"]
