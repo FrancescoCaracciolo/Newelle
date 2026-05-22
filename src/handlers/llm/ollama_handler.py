@@ -13,6 +13,7 @@ from ..handler import ErrorSeverity
 
 from .llm import LLMHandler
 from ...utility import get_streaming_extra_setting, extract_tools_from_prompts, convert_history_openai, balance_native_tool_call_responses, parse_assistant_native_tool_calls, parse_tool_console_message
+from ...utility.system import can_escape_sandbox, get_spawn_command
 from ...utility.media import extract_image
 from ...handlers import ExtraSettings
 
