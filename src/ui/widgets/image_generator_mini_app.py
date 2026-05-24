@@ -1,4 +1,4 @@
-from gi.repository import Gtk, Adw
+from gi.repository import Gtk, Adw, GLib
 from ..extra_settings import ExtraSettingsBuilder
 from .image_generator import ImageGeneratorWidget
 import uuid
@@ -69,6 +69,13 @@ class ImageGeneratorMiniApp(Gtk.Box):
 
         self._build_settings_rows(settings_group)
 
+        self.handler.set_extra_settings_update(
+            lambda _: GLib.idle_add(
+                self.extra_settings_builder.on_setting_change,
+                self.constants, self.handler, self.handler.key, True,
+            )
+        )
+
         scroll.set_child(content)
         self.append(scroll)
 
@@ -76,13 +83,19 @@ class ImageGeneratorMiniApp(Gtk.Box):
         return "image_generator"
 
     def _build_settings_rows(self, group):
-        extra_settings = self.handler.get_extra_settings()
-        for setting in extra_settings:
-            row = self.extra_settings_builder.create_extra_setting(
-                setting, self.handler, self.constants
-            )
-            if row is not None:
-                group.add(row)
+        row_key = (
+            self.handler.key,
+            self.extra_settings_builder.convert_constants(self.constants),
+            self.handler.is_secondary(),
+        )
+        self.settingsrows[row_key] = {
+            "row": group,
+            "extra_settings": [],
+            "extra_settings_loaded": True,
+        }
+        self.extra_settings_builder.add_extra_settings(
+            self.constants, self.handler, group
+        )
 
     def on_generate(self, button=None):
         """Handle the generate button click or Enter key."""
