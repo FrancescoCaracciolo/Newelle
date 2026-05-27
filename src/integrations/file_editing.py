@@ -252,14 +252,14 @@ class FileEditingIntegration(NewelleExtension):
         except Exception as e:
             return "", f"Error reading file {absolute_path}: {str(e)}", False
 
-    def read_file(self, absolute_path: str, offset: int = 0, limit: Optional[int] = None):
+    def read_file(self, absolute_path: str, offset: int = 0, limit: int = 10000):
         """Read the contents of a text file with permission checking."""
         return self._check_and_execute(
             absolute_path, "read",
             lambda: self._read_file_impl(absolute_path, offset, limit),
         )
 
-    def _read_file_impl(self, absolute_path: str, offset: int = 0, limit: Optional[int] = None):
+    def _read_file_impl(self, absolute_path: str, offset: int = 0, limit: int = 10000):
         result = ToolResult()
         content, info, success = self._read_file_content(absolute_path, offset, limit)
         if not success:
@@ -285,7 +285,7 @@ class FileEditingIntegration(NewelleExtension):
         result.set_widget(widget)
         return result
     
-    def read_file_restore(self, tool_uuid: str, absolute_path: str, offset: int = 0, limit: Optional[int] = None):
+    def read_file_restore(self, tool_uuid: str, absolute_path: str, offset: int = 0, limit: int = 10000):
         """
         Restore the read_file widget from chat history.
         
