@@ -6,7 +6,7 @@ from .handlers.embeddings import WordLlamaHandler, OpenAIEmbeddingHandler, Gemin
 from .handlers.memory import MemoripyHandler, UserSummaryHandler, SummaryMemoripyHanlder, LlamaIndexMemoryHandler, AgenticMemoryHandler
 from .handlers.rag import LlamaIndexHanlder
 from .handlers.websearch import SearXNGHandler, DDGSeachHandler, TavilyHandler, TinyFishHandler
-from .handlers.image_generator import ImageGeneratorHandler, PollinationsHandler, StableDiffusionCPPHandler, OpenAIImageHandler
+from .handlers.image_generator import ImageGeneratorHandler, PollinationsHandler, StableDiffusionCPPHandler, OpenAIImageHandler, OpenRouterImageHandler
 from .handlers.interfaces.interface import Interface
 from .handlers.interfaces.api_handler import APIInterface
 from .handlers.interfaces.gui_api_handler import GUIAPIInterface
@@ -38,6 +38,13 @@ AVAILABLE_IMAGE_GENERATORS = {
         "title": _("OpenAI Compatible"),
         "description": _("Generate images using OpenAI-compatible APIs (OpenAI DALL-E, and compatible services)."),
         "class": OpenAIImageHandler,
+    },
+    "openrouter-image": {
+        "key": "openrouter-image",
+        "title": _("OpenRouter"),
+        "description": _("Generate images using OpenRouter's Chat Completions endpoint with the modalities parameter. Supports image-capable models like Gemini, Flux, Recraft, Sourceful and more."),
+        "class": OpenRouterImageHandler,
+        "website": "https://openrouter.ai/models?output_modalities=image",
     },
     "stablediffusioncpp": {
         "key": "stablediffusioncpp",

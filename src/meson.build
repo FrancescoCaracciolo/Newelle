@@ -212,6 +212,7 @@ image_generator_sources = [
   'handlers/image_generator/pollinations_handler.py',
   'handlers/image_generator/stablediffusion_cpp_handler.py',
   'handlers/image_generator/openai_image_handler.py',
+  'handlers/image_generator/openrouter_image_handler.py',
   ]
 
 interface_sources = [

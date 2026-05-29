@@ -41,6 +41,7 @@ class OpenAIImageHandler(ImageGeneratorHandler):
                     image_models.append((mid, mid))
             if image_models:
                 self.models = tuple(image_models)
+                print(self.models)
                 self.set_setting("models", json.dumps(self.models))
                 self.settings_update()
         except Exception as e:
