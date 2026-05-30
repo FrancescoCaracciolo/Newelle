@@ -2,6 +2,7 @@ from .image_generator import ImageGeneratorHandler
 from ...handlers.extra_settings import ExtraSettings
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
 from ...handlers import ErrorSeverity
+from ...ui.model_library import ModelLibraryWindow, LibraryModel
 import subprocess
 import os
 import platform
@@ -11,8 +12,236 @@ import zipfile
 import tempfile
 import time
 import socket
+import json
+import glob
 from gi.repository import Gtk, Adw, GLib, Gdk
 import requests
+
+# Model Library
+SD_MODELS = [
+    {
+        "id": "sd-v1-5",
+        "family": "sd",
+        "display": "Stable Diffusion 1.5",
+        "description": "Classic SD 1.5 from RunwayML. ~4 GB, single file. Great for LoRAs and fast iteration.",
+        "tags": ["sd", "text2image", "safetensors", "4GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors", "filename": "v1-5-pruned-emaonly.safetensors", "shared": False},
+        ],
+        "cli_extra": [],
+    },
+    {
+        "id": "sdxl-base-1.0",
+        "family": "sdxl",
+        "display": "SDXL Base 1.0",
+        "description": "Stable Diffusion XL base 1.0 with fixed VAE. ~6.5 GB, native 1024x1024 generation.",
+        "tags": ["sdxl", "text2image", "safetensors", "6GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors", "filename": "sd_xl_base_1.0.safetensors", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors", "filename": "sdxl_vae.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--vae-tiling"],
+    },
+    {
+        "id": "sd3-medium",
+        "family": "sd3",
+        "display": "Stable Diffusion 3 Medium",
+        "description": "SD3 Medium with bundled CLIPs and T5XXL. ~5 GB, single file.",
+        "tags": ["sd3", "text2image", "safetensors", "5GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://code.ixdev.cn/hf-mirrors/stable-diffusion-3-medium/-/raw/main/sd3_medium_incl_clips_t5xxlfp16.safetensors", "filename": "sd3_medium_incl_clips_t5xxlfp16.safetensors", "shared": False},
+        ],
+        "cli_extra": [],
+    },
+    {
+        "id": "sd3.5-large",
+        "family": "sd3",
+        "display": "Stable Diffusion 3.5 Large",
+        "description": "SD3.5 Large with separate CLIP-L, CLIP-G and T5XXL text encoders. ~13 GB total.",
+        "tags": ["sd3", "text2image", "safetensors", "13GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://code.ixdev.cn/hf-mirrors/stable-diffusion-3.5-large/-/raw/main/sd3.5_large.safetensors", "filename": "sd3.5_large.safetensors", "shared": False},
+            {"role": "clip_l", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors", "filename": "clip_l.safetensors", "shared": True},
+            {"role": "t5xxl", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "filename": "t5xxl_fp16.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--clip-on-cpu"],
+    },
+    {
+        "id": "flux1-dev-q8_0",
+        "family": "flux",
+        "display": "FLUX.1-dev Q8_0",
+        "description": "FLUX.1-dev 12B Q8_0 (high quality). ~12 GB diffusion, ~12 GB T5XXL. Best on 16+ GB VRAM.",
+        "tags": ["flux", "text2image", "gguf", "q8_0", "12GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/FLUX.1-dev-gguf/resolve/main/flux1-dev-q8_0.gguf", "filename": "flux1-dev-q8_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "clip_l", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors", "filename": "clip_l.safetensors", "shared": True},
+            {"role": "t5xxl", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "filename": "t5xxl_fp16.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--clip-on-cpu"],
+    },
+    {
+        "id": "flux1-dev-q4_0",
+        "family": "flux",
+        "display": "FLUX.1-dev Q4_0",
+        "description": "FLUX.1-dev 12B Q4_0 (smaller). ~6.5 GB diffusion. Fits on 8 GB VRAM with offload.",
+        "tags": ["flux", "text2image", "gguf", "q4_0", "6GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/FLUX.1-dev-gguf/resolve/main/flux1-dev-q4_0.gguf", "filename": "flux1-dev-q4_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "clip_l", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors", "filename": "clip_l.safetensors", "shared": True},
+            {"role": "t5xxl", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "filename": "t5xxl_fp16.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--clip-on-cpu"],
+    },
+    {
+        "id": "flux1-schnell-q8_0",
+        "family": "flux",
+        "display": "FLUX.1-schnell Q8_0",
+        "description": "FLUX.1-schnell 12B Q8_0, distilled for 4-step generation. Apache 2.0 licensed.",
+        "tags": ["flux", "text2image", "gguf", "q8_0", "schnell", "12GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/FLUX.1-schnell-gguf/resolve/main/flux1-schnell-q8_0.gguf", "filename": "flux1-schnell-q8_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-schnell/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "clip_l", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors", "filename": "clip_l.safetensors", "shared": True},
+            {"role": "t5xxl", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "filename": "t5xxl_fp16.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--clip-on-cpu"],
+    },
+    {
+        "id": "flux2-dev-q4_k_s",
+        "family": "flux2",
+        "display": "FLUX.2-dev Q4_K_S",
+        "description": "FLUX.2-dev with Mistral-Small-3.2 24B LLM text encoder. ~19 GB diffusion, ~14 GB LLM.",
+        "tags": ["flux2", "text2image", "gguf", "q4_k_s", "32GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/city96/FLUX.2-dev-gguf/resolve/main/flux2-dev-Q4_K_S.gguf", "filename": "flux2-dev-Q4_K_S.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors", "filename": "flux2_ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF/resolve/main/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf", "filename": "Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "flux2-klein-4b",
+        "family": "flux2",
+        "display": "FLUX.2-klein-4B Q4_0",
+        "description": "FLUX.2-klein-4B with Qwen3-4B text encoder. ~2.5 GB diffusion, ~2.5 GB LLM. Fits on 8 GB VRAM.",
+        "tags": ["flux2", "text2image", "gguf", "q4_0", "klein", "5GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q4_0.gguf", "filename": "flux-2-klein-4b-Q4_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors", "filename": "flux2_ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf", "filename": "Qwen3-4B-Q4_K_M.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "flux2-klein-9b",
+        "family": "flux2",
+        "display": "FLUX.2-klein-9B Q4_0",
+        "description": "FLUX.2-klein-9B with Qwen3-8B text encoder. ~5.5 GB diffusion, ~5 GB LLM. Fits on 12 GB VRAM.",
+        "tags": ["flux2", "text2image", "gguf", "q4_0", "klein", "10GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q4_0.gguf", "filename": "flux-2-klein-9b-Q4_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors", "filename": "flux2_ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf", "filename": "Qwen3-8B-Q4_K_M.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "flux1-kontext-dev-q4_k_m",
+        "family": "kontext",
+        "display": "FLUX.1-Kontext-dev Q4_K_M",
+        "description": "FLUX.1-Kontext-dev image edit model. Requires a reference image. ~6.9 GB diffusion Q4_K_M.",
+        "tags": ["flux", "kontext", "image-edit", "gguf", "q4_k_m", "12GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/QuantStack/FLUX.1-Kontext-dev-GGUF/resolve/main/flux1-kontext-dev-Q4_K_M.gguf", "filename": "flux1-kontext-dev-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "clip_l", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors", "filename": "clip_l.safetensors", "shared": True},
+            {"role": "t5xxl", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "filename": "t5xxl_fp16.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--clip-on-cpu"],
+    },
+    {
+        "id": "chroma-v40-q8_0",
+        "family": "chroma",
+        "display": "Chroma v40 Q8_0",
+        "description": "Chroma unlocked v40 8.9B Q8_0. ~8.9 GB diffusion, ~9.5 GB T5XXL. Apache 2.0.",
+        "tags": ["chroma", "text2image", "gguf", "q8_0", "18GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/silveroxides/Chroma-GGUF/resolve/main/chroma-unlocked-v40/chroma-unlocked-v40-Q8_0.gguf", "filename": "chroma-unlocked-v40-Q8_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "t5xxl", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "filename": "t5xxl_fp16.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--clip-on-cpu", "--chroma-disable-dit-mask"],
+    },
+    {
+        "id": "qwen-image-q4_k_m",
+        "family": "qwen_image",
+        "display": "Qwen Image Q4_K_M",
+        "description": "Qwen Image with Qwen2.5-VL-7B text encoder. ~13 GB diffusion, ~4.5 GB LLM. Strong text rendering.",
+        "tags": ["qwen", "text2image", "gguf", "q4_k_m", "18GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/main/Qwen_Image-Q4_K_M.gguf", "filename": "Qwen_Image-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors", "filename": "qwen_image_vae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", "filename": "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--flow-shift", "3"],
+    },
+    {
+        "id": "z-image-turbo-q4_k",
+        "family": "z_image",
+        "display": "Z-Image Turbo Q4_K",
+        "description": "Z-Image Turbo distilled 8-step model. ~3.9 GB diffusion, ~2.5 GB Qwen3-4B. Fits on 8 GB VRAM.",
+        "tags": ["z-image", "turbo", "text2image", "gguf", "q4_k", "6GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf", "filename": "z_image_turbo-Q4_K.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-schnell/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "ltx-2.3-22b-dev-ud-q4_k_m",
+        "family": "ltx2",
+        "display": "LTX-2.3 22B dev Q4_K_M (video)",
+        "description": "LTX-2.3 video model with gemma-3-12b text encoder. ~10 GB diffusion, ~7 GB LLM, ~5 GB VAE.",
+        "tags": ["ltx2", "video", "t2v", "i2v", "gguf", "q4_k_m", "25GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/ltx-2.3-22b-dev-UD-Q4_K_M.gguf", "filename": "ltx-2.3-22b-dev-UD-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/vae/ltx-2.3-22b-dev_video_vae.safetensors", "filename": "ltx-2.3-22b-dev_video_vae.safetensors", "shared": True},
+            {"role": "audio_vae", "url": "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/vae/ltx-2.3-22b-dev_audio_vae.safetensors", "filename": "ltx-2.3-22b-dev_audio_vae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/unsloth/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf", "filename": "gemma-3-12b-it-Q4_K_M.gguf", "shared": False},
+            {"role": "embeddings", "url": "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors", "filename": "ltx-2.3-22b-dev_embeddings_connectors.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "ovis-image-q4_0",
+        "family": "ovis_image",
+        "display": "Ovis-Image 7B Q4_0",
+        "description": "Ovis-Image 7B text-to-image with Ovis 2.5 text encoder. ~4.2 GB diffusion, ~5 GB LLM.",
+        "tags": ["ovis", "text2image", "gguf", "q4_0", "9GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/Ovis-Image-7B-GGUF/resolve/main/ovis_image-Q4_0.gguf", "filename": "ovis_image-Q4_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-schnell/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/Comfy-Org/Ovis-Image/resolve/main/split_files/text_encoders/ovis_2.5.safetensors", "filename": "ovis_2.5.safetensors", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "anima-preview-q4_k_m",
+        "family": "anima",
+        "display": "Anima preview Q4_K_M",
+        "description": "Anima preview 3B Q4_K_M. ~1.4 GB diffusion, ~0.5 GB Qwen3-0.6B. Very lightweight.",
+        "tags": ["anima", "text2image", "gguf", "q4_k_m", "2GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/Bedovyy/Anima-GGUF/resolve/main/anima-preview-Q4_K_M.gguf", "filename": "anima-preview-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors", "filename": "qwen_image_vae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/mradermacher/Qwen3-0.6B-Base-GGUF/resolve/main/Qwen3-0.6B-Base.Q4_K_M.gguf", "filename": "Qwen3-0.6B-Base.Q4_K_M.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+]
 
 
 class StableDiffusionCPPHandler(ImageGeneratorHandler):
@@ -34,12 +263,14 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         self.sd_binary_path = os.path.join(self.sd_cpp_path, "build", "bin", "sd-cli")
         self.sd_server_binary_path = os.path.join(self.sd_cpp_path, "build", "bin", "sd-server")
         self.model_folder = os.path.join(self.path, "sd_models")
+        self.shared_folder = os.path.join(self.model_folder, "_shared")
         self.lora_folder = os.path.join(self.path, "sd_lora")
         self._installing = False
         self._server_process = None
         self._server_lock = threading.Lock()
+        self.downloading = {}
 
-        for folder in (self.model_folder, self.lora_folder):
+        for folder in (self.model_folder, self.shared_folder, self.lora_folder):
             if not os.path.exists(folder):
                 try:
                     os.makedirs(folder)
@@ -48,6 +279,12 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
     def get_extra_settings(self) -> list:
         settings = []
+
+        # Sync special settings with the currently selected model. When the user
+        # picks a library variant the VAE/LLM/CLIP/T5XXL/etc fields are filled
+        # in from the variant manifest; when they pick a custom (loose) file
+        # those fields are cleared.
+        self._sync_special_settings_with_model()
 
         # Model selection
         model_list = self._get_model_list()
@@ -60,6 +297,17 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 model_list[0][1] if len(model_list) > 0 else "",
                 refresh=lambda button: self._get_model_list(True),
                 folder=self.model_folder,
+                update_settings=True,
+            )
+        )
+
+        settings.append(
+            ExtraSettings.ButtonSetting(
+                "library",
+                "Model Library",
+                "Browse and download curated models (SD, SDXL, SD3, FLUX, Kontext, Chroma, Qwen, Z-Image, LTX-2, Ovis, Anima, ...)",
+                self.open_model_library,
+                label="Model Library",
             )
         )
 
@@ -211,20 +459,202 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             )
         )
 
+        # Advanced settings
+        settings.append(
+            ExtraSettings.NestedSetting(
+                "advanced_settings",
+                "Advanced Settings",
+                "Override VAE, LLM and text encoder paths and tune low-VRAM / model-specific CLI flags.",
+                [
+                    ExtraSettings.EntrySetting(
+                        "vae_path",
+                        "VAE",
+                        "Path to standalone VAE model (overrides --vae). Leave empty to use the model default or the variant manifest.",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "llm_path",
+                        "LLM (Qwen / Mistral / Gemma / Ovis)",
+                        "Path to the LLM text encoder (--llm) used by Qwen Image, FLUX.2, Z-Image, LTX-2, Ovis, Anima.",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "clip_l_path",
+                        "CLIP-L",
+                        "Path to the CLIP-L text encoder (--clip_l) used by SD3.5, FLUX.1, Kontext.",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "clip_g_path",
+                        "CLIP-G",
+                        "Path to the CLIP-G text encoder (--clip_g) used by SD3.5.",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "t5xxl_path",
+                        "T5XXL",
+                        "Path to the T5XXL text encoder (--t5xxl) used by FLUX.1, Kontext, Chroma, SD3.5.",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "video_vae_path",
+                        "Video VAE",
+                        "Path to the video VAE (used as --vae for LTX-2).",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "audio_vae_path",
+                        "Audio VAE",
+                        "Path to the audio VAE (--audio-vae) used by LTX-2.",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "embeddings_connectors_path",
+                        "Embeddings Connectors",
+                        "Path to the embeddings connectors safetensors (--embeddings-connectors) used by LTX-2.",
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "offload_to_cpu",
+                        "Offload to CPU",
+                        "Place weights in RAM and load them into VRAM on demand (--offload-to-cpu).",
+                        False,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "diffusion_fa",
+                        "Diffusion Flash Attention",
+                        "Use flash attention in the diffusion model (--diffusion-fa).",
+                        False,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "vae_tiling",
+                        "VAE Tiling",
+                        "Process VAE in tiles to reduce memory usage (--vae-tiling).",
+                        False,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "clip_on_cpu",
+                        "Keep CLIP on CPU",
+                        "Keep CLIP text encoders in CPU memory (--clip-on-cpu).",
+                        False,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "vae_on_cpu",
+                        "Keep VAE on CPU",
+                        "Keep VAE in CPU memory (--vae-on-cpu).",
+                        False,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "chroma_disable_dit_mask",
+                        "Chroma: Disable DiT Mask",
+                        "Disable DiT mask for Chroma (--chroma-disable-dit-mask).",
+                        False,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "chroma_enable_t5_mask",
+                        "Chroma: Enable T5 Mask",
+                        "Enable T5 mask for Chroma (--chroma-enable-t5-mask).",
+                        False,
+                    ),
+                    ExtraSettings.ToggleSetting(
+                        "qwen_image_zero_cond_t",
+                        "Qwen Image: Zero Cond T",
+                        "Enable zero_cond_t for Qwen Image (--qwen-image-zero-cond-t).",
+                        False,
+                    ),
+                    ExtraSettings.ScaleSetting(
+                        "flow_shift",
+                        "Flow Shift",
+                        "Shift value for Flow models (e.g. 3 for Qwen Image). 0 = auto.",
+                        0.0, 0.0, 10.0, 2,
+                    ),
+                    ExtraSettings.ComboSetting(
+                        "prediction",
+                        "Prediction Type",
+                        "Override the model's prediction type (--prediction).",
+                        ["auto", "eps", "v", "edm_v", "sd3_flow", "flux_flow", "flux2_flow"],
+                        "auto",
+                    ),
+                    ExtraSettings.ComboSetting(
+                        "cache_mode",
+                        "Cache Mode",
+                        "Caching method for faster inference (--cache-mode).",
+                        ["none", "easycache", "ucache", "dbcache", "spectrum"],
+                        "none",
+                    ),
+                    ExtraSettings.ComboSetting(
+                        "rng",
+                        "RNG",
+                        "Random number generator backend (--rng). 'cuda' matches A1111, 'cpu' matches ComfyUI.",
+                        ["cuda", "cpu", "std_default"],
+                        "cuda",
+                    ),
+                    ExtraSettings.MultilineEntrySetting(
+                        "extra_cli_args",
+                        "Extra CLI Arguments",
+                        "Additional command-line arguments passed verbatim to sd-cli / sd-server. One per line, e.g. '--vae-tile-size 64x64'.",
+                        "",
+                    ),
+                ],
+            )
+        )
+
         return settings
 
     def _get_model_list(self, update=False):
-        """Get available model files in the model folder."""
-        model_list = tuple()
+        """Get available model files in the model folder.
+
+        Library-installed variants are listed first with their display name,
+        followed by loose model files at the root of the model folder, and
+        finally any files found in the user-configured custom models directory.
+
+        Files that are part of any installed variant's manifest (such as a
+        variant's VAE, LLM, T5XXL, etc.) are intentionally hidden from the
+        list, since the variant is already represented by its diffusion entry.
+        """
+        model_list = []
         seen = set()
 
-        for root, _, files in os.walk(self.model_folder):
+        variant_owned_paths = self._variant_owned_paths()
+
+        for entry in SD_MODELS:
+            manifest_path = self._manifest_path(entry["id"])
+            if os.path.exists(manifest_path):
+                try:
+                    with open(manifest_path, "r") as f:
+                        manifest = json.load(f)
+                except Exception:
+                    continue
+                diffusion_path = manifest.get("files", {}).get("diffusion")
+                if not diffusion_path or not os.path.exists(diffusion_path):
+                    continue
+                relative_path = os.path.relpath(diffusion_path, self.model_folder)
+                model_list.append((entry["display"], relative_path))
+                seen.add(entry["display"])
+
+        for root, dirs, files in os.walk(self.model_folder):
+            dirs[:] = [d for d in dirs if d != "_shared" and not d.startswith(".")]
             for file in files:
                 if file.endswith((".safetensors", ".ckpt", ".pth", ".pt", ".gguf")):
+                    file_path = os.path.join(root, file)
+                    abs_path = os.path.abspath(file_path)
+                    if abs_path in variant_owned_paths:
+                        continue
                     file_name = os.path.splitext(file)[0]
-                    relative_path = os.path.relpath(os.path.join(root, file), self.model_folder)
-                    model_list += ((file_name, relative_path),)
-                    seen.add(file_name)
+                    relative_path = os.path.relpath(file_path, self.model_folder)
+                    display_name = file_name
+                    if display_name in seen:
+                        display_name = f"{file_name} (custom)"
+                    seen.add(display_name)
+                    model_list.append((display_name, relative_path))
 
         custom_dir = self.get_setting("custom_models_dir", False, "") or ""
         if custom_dir:
@@ -233,18 +663,110 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 for root, _, files in os.walk(custom_dir):
                     for file in files:
                         if file.endswith((".safetensors", ".ckpt", ".pth", ".pt", ".gguf")):
-                            file_name = os.path.splitext(file)[0]
                             abs_path = os.path.abspath(os.path.join(root, file))
+                            if abs_path in variant_owned_paths:
+                                continue
+                            file_name = os.path.splitext(file)[0]
                             display_name = file_name
                             if display_name in seen:
                                 display_name = f"{file_name} (custom)"
-                            model_list.append((display_name, abs_path))
                             seen.add(display_name)
+                            model_list.append((display_name, abs_path))
 
         if update:
             self.settings_update()
 
-        return model_list
+        return tuple(model_list)
+
+    def _variant_owned_paths(self) -> set:
+        """Return the set of absolute file paths that belong to any installed
+        variant's manifest. Used to hide auxiliary files (VAE, LLM, T5XXL, ...)
+        from the model list."""
+        paths = set()
+        for entry in SD_MODELS:
+            manifest = self._read_manifest(entry["id"])
+            if not manifest:
+                continue
+            for path in (manifest.get("files", {}) or {}).values():
+                if not path:
+                    continue
+                try:
+                    paths.add(os.path.abspath(path))
+                except Exception:
+                    pass
+        return paths
+
+    def _sync_special_settings_with_model(self):
+        """Auto-populate or clear the advanced special settings based on the
+        currently selected model.
+
+        - If the model matches an installed variant's manifest, fill in the
+          VAE / LLM / CLIP / T5XXL / audio-VAE / embeddings paths from the
+          manifest so the user doesn't have to.
+        - If the model is a custom (loose) file and the previously synced
+          model was a variant, clear those special settings so stale values
+          from a previous variant don't bleed through.
+        - If both the previous and the current model are custom, leave the
+          settings alone so the user's manual edits are preserved.
+
+        The sync runs at most once per model change, tracked via the
+        ``_last_synced_model`` setting which is persisted across sessions.
+        """
+        try:
+            current_model = self.get_setting("model", False, "") or ""
+        except Exception:
+            current_model = ""
+        try:
+            last_synced = self.get_setting("_last_synced_model", False, "") or ""
+        except Exception:
+            last_synced = ""
+        if current_model == last_synced:
+            return
+
+        special_settings = [
+            "vae_path",
+            "llm_path",
+            "clip_l_path",
+            "clip_g_path",
+            "t5xxl_path",
+            "audio_vae_path",
+            "embeddings_connectors_path",
+        ]
+
+        current_is_variant = self._variant_for_model_path(current_model) is not None
+        previous_was_variant = (
+            last_synced != "" and self._variant_for_model_path(last_synced) is not None
+        )
+
+        if current_is_variant:
+            _, manifest = self._variant_for_model_path(current_model)
+            files = manifest.get("files", {}) or {}
+            for role, key in (
+                ("vae", "vae_path"),
+                ("llm", "llm_path"),
+                ("clip_l", "clip_l_path"),
+                ("clip_g", "clip_g_path"),
+                ("t5xxl", "t5xxl_path"),
+                ("audio_vae", "audio_vae_path"),
+                ("embeddings", "embeddings_connectors_path"),
+            ):
+                value = files.get(role) or ""
+                try:
+                    self.set_setting(key, value)
+                except Exception:
+                    pass
+        elif previous_was_variant:
+            for key in special_settings:
+                try:
+                    self.set_setting(key, "")
+                except Exception:
+                    pass
+
+        try:
+            self.set_setting("_last_synced_model", current_model)
+        except Exception:
+            pass
+
 
     def _get_lora_dir(self) -> str:
         """Return the LoRA folder path from settings, or the default."""
@@ -265,6 +787,377 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         if os.path.isabs(value):
             return value
         return os.path.join(self.model_folder, value)
+
+    def _model_arg(self, model_path: str) -> list:
+        """Return the appropriate CLI flag for the given model file path.
+
+        stable-diffusion.cpp has two ways to load the diffusion model:
+        - ``-m`` / ``--model`` (``model_path``) loads tensors *without* adding
+          a prefix. Use this for bundled safetensors files (SD/SDXL) whose
+          tensors already carry the correct naming (``model.diffusion_model.*``,
+          ``conditioner.embedders.*``, ``first_stage_model.*``).
+        - ``--diffusion-model`` (``diffusion_model_path``) loads tensors and
+          adds the ``model.diffusion_model.`` prefix to every tensor that does
+          not already start with it. Use this for separate diffusion-only
+          files (typically GGUFs) whose tensors have no prefix.
+
+        Heuristic: pass ``--diffusion-model`` for ``.gguf`` files (so the
+        prefix is added) and ``-m`` for everything else (safetensors, torch
+        checkpoints, …).
+        """
+        if not model_path:
+            return ["-m", ""]
+        if model_path.lower().endswith(".gguf"):
+            return ["--diffusion-model", model_path]
+        return ["-m", model_path]
+
+    # ── Model library ──────────────────────────────────────────────
+
+    def _manifest_path(self, variant_id: str) -> str:
+        """Return the manifest path for a given library variant."""
+        return os.path.join(self.model_folder, variant_id, ".sd_model.json")
+
+    def _read_manifest(self, variant_id: str):
+        """Read a variant manifest from disk, or return None if missing/invalid."""
+        manifest_path = self._manifest_path(variant_id)
+        if not os.path.exists(manifest_path):
+            return None
+        try:
+            with open(manifest_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _variant_for_model_path(self, model_path: str):
+        """Find the library entry whose installed diffusion path matches the given
+        absolute or relative model path, or None if it's a loose file."""
+        if not model_path:
+            return None
+        abs_path = self._resolve_model_path(model_path)
+        for entry in SD_MODELS:
+            manifest = self._read_manifest(entry["id"])
+            if not manifest:
+                continue
+            if manifest.get("files", {}).get("diffusion") == abs_path:
+                return entry, manifest
+        return None
+
+    def _build_advanced_args(self, variant_manifest=None):
+        """Build a list of additional CLI args from advanced settings and the
+        optional variant manifest.
+
+        Variant-provided defaults are used when the user has not overridden
+        the corresponding path setting.
+        """
+        args = []
+
+        def resolve_path(setting_key, manifest_role):
+            value = self.get_setting(setting_key, True, "") or ""
+            if value and os.path.exists(os.path.expanduser(value)):
+                return os.path.expanduser(value)
+            if variant_manifest is not None:
+                files = variant_manifest.get("files", {}) or {}
+                p = files.get(manifest_role)
+                if p and os.path.exists(p):
+                    return p
+            return ""
+
+        def add_file_arg(flag, setting_key, manifest_role):
+            path = resolve_path(setting_key, manifest_role)
+            if path:
+                args.extend([flag, path])
+
+        add_file_arg("--vae", "vae_path", "vae")
+        add_file_arg("--llm", "llm_path", "llm")
+        add_file_arg("--clip_l", "clip_l_path", "clip_l")
+        add_file_arg("--clip_g", "clip_g_path", "clip_g")
+        add_file_arg("--t5xxl", "t5xxl_path", "t5xxl")
+        add_file_arg("--audio-vae", "audio_vae_path", "audio_vae")
+        add_file_arg("--embeddings-connectors", "embeddings_connectors_path", "embeddings")
+
+        if self.get_setting("offload_to_cpu", False, False):
+            args.append("--offload-to-cpu")
+        if self.get_setting("diffusion_fa", False, False):
+            args.append("--diffusion-fa")
+        if self.get_setting("vae_tiling", False, False):
+            args.append("--vae-tiling")
+        if self.get_setting("clip_on_cpu", False, False):
+            args.append("--clip-on-cpu")
+        if self.get_setting("vae_on_cpu", False, False):
+            args.append("--vae-on-cpu")
+        if self.get_setting("chroma_disable_dit_mask", False, False):
+            args.append("--chroma-disable-dit-mask")
+        if self.get_setting("chroma_enable_t5_mask", False, False):
+            args.append("--chroma-enable-t5-mask")
+        if self.get_setting("qwen_image_zero_cond_t", False, False):
+            args.append("--qwen-image-zero-cond-t")
+
+        flow_shift = self.get_setting("flow_shift", True, 0.0)
+        try:
+            flow_shift = float(flow_shift)
+        except (TypeError, ValueError):
+            flow_shift = 0.0
+        if flow_shift > 0:
+            args.extend(["--flow-shift", str(flow_shift)])
+
+        prediction = self.get_setting("prediction", True, "auto")
+        if prediction and prediction != "auto":
+            args.extend(["--prediction", str(prediction)])
+
+        cache_mode = self.get_setting("cache_mode", True, "none")
+        if cache_mode and cache_mode != "none":
+            args.extend(["--cache-mode", str(cache_mode)])
+
+        rng = self.get_setting("rng", True, "cuda")
+        if rng and rng != "cuda":
+            args.extend(["--rng", str(rng)])
+
+        extra_cli = self.get_setting("extra_cli_args", True, "") or ""
+        for line in extra_cli.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            args.extend(line.split())
+
+        if variant_manifest is not None:
+            for extra in variant_manifest.get("cli_extra", []) or []:
+                if extra not in args:
+                    args.append(extra)
+
+        return args
+
+    # Model library integration (used by ModelLibraryWindow)
+    def fetch_models(self):
+        """Return the catalog of installable models for the library window."""
+        models = []
+        for entry in SD_MODELS:
+            description = entry["description"]
+            models.append(LibraryModel(
+                id=entry["id"],
+                name=entry["display"],
+                description=description,
+                tags=list(entry.get("tags", [])),
+                is_pinned=False,
+                is_installed=self.model_installed(entry["id"]),
+            ))
+        return models
+
+    def model_installed(self, model: str) -> bool:
+        """Check whether a library variant is fully installed."""
+        if model in self.downloading and self.downloading[model].get("progress", 1.0) < 1.0:
+            return False
+        return os.path.exists(self._manifest_path(model))
+
+    def get_percentage(self, model: str) -> float:
+        """Return the current download progress (0.0 - 1.0) for a model variant."""
+        if model in self.downloading:
+            return self.downloading[model].get("progress", 0.0)
+        if self.model_installed(model):
+            return 1.0
+        return 0.0
+
+    def install_model(self, model_id: str):
+        """Toggle install / uninstall of a library variant."""
+        if model_id in self.downloading and self.downloading[model_id].get("progress", 0.0) < 1.0:
+            return
+        if self.model_installed(model_id):
+            self._uninstall_variant(model_id)
+            GLib.idle_add(self.settings_update)
+            return
+
+        self.downloading[model_id] = {"status": True, "progress": 0.0, "files_done": 0, "files_total": 0}
+        GLib.idle_add(self.settings_update)
+        threading.Thread(target=self._download_variant, args=(model_id,), daemon=True).start()
+
+    def _download_variant(self, model_id: str):
+        """Download every file for a variant, with progress reporting."""
+        entry = next((e for e in SD_MODELS if e["id"] == model_id), None)
+        if entry is None:
+            if model_id in self.downloading:
+                del self.downloading[model_id]
+            GLib.idle_add(self.settings_update)
+            return
+
+        try:
+            files = entry.get("files", []) or []
+            total = len(files)
+            self.downloading[model_id]["files_total"] = total
+            self.downloading[model_id]["files_done"] = 0
+            self.downloading[model_id]["progress"] = 0.0
+
+            variant_dir = os.path.join(self.model_folder, model_id)
+            os.makedirs(variant_dir, exist_ok=True)
+
+            resolved_files = []
+            for fdef in files:
+                filename = fdef["filename"]
+                if fdef.get("shared"):
+                    dest = os.path.join(self.shared_folder, filename)
+                else:
+                    dest = os.path.join(variant_dir, filename)
+                resolved_files.append({**fdef, "dest": dest})
+
+            for idx, fdef in enumerate(resolved_files):
+                self.downloading[model_id]["current_file"] = fdef["filename"]
+                self.downloading[model_id]["files_done"] = idx
+                if os.path.exists(fdef["dest"]) and os.path.getsize(fdef["dest"]) > 0:
+                    self._advance_progress(model_id, idx, total, 1.0)
+                    continue
+                self._download_file(fdef["url"], fdef["dest"], model_id, idx, total)
+
+            manifest = {
+                "id": entry["id"],
+                "family": entry.get("family", ""),
+                "display": entry.get("display", ""),
+                "description": entry.get("description", ""),
+                "cli_extra": list(entry.get("cli_extra", []) or []),
+                "files": {},
+            }
+            for fdef in resolved_files:
+                manifest["files"][fdef["role"]] = fdef["dest"]
+
+            with open(self._manifest_path(model_id), "w") as f:
+                json.dump(manifest, f, indent=2)
+
+            self.downloading[model_id]["progress"] = 1.0
+            self.downloading[model_id]["status"] = False
+        except Exception as e:
+            print(f"Failed to install {model_id}: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if model_id in self.downloading:
+                self.downloading[model_id]["status"] = False
+            GLib.idle_add(self.settings_update)
+            GLib.timeout_add(2000, self._cleanup_download_entry, model_id)
+
+    def _advance_progress(self, model_id, idx, total, file_progress):
+        if model_id not in self.downloading:
+            return
+        per_file = 1.0 / max(total, 1)
+        self.downloading[model_id]["progress"] = min((idx + file_progress) * per_file, 1.0)
+
+    def _download_file(self, url, dest, model_id, idx, total):
+        tmp_path = dest + ".part"
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        try:
+            with requests.get(url, stream=True, timeout=300) as resp:
+                resp.raise_for_status()
+                total_bytes = int(resp.headers.get("content-length", 0)) or 1
+                downloaded = 0
+                first_chunk = None
+                with open(tmp_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 256):
+                        if not chunk:
+                            continue
+                        if first_chunk is None:
+                            first_chunk = chunk
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        self._advance_progress(model_id, idx, total, downloaded / total_bytes)
+            self._validate_downloaded_file(tmp_path, dest, first_chunk)
+            os.replace(tmp_path, dest)
+            self._advance_progress(model_id, idx, total, 1.0)
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+            raise
+
+    def _validate_downloaded_file(self, tmp_path, dest, first_chunk):
+        """Verify the downloaded file is a real model file and not an HTML
+        error page or empty response. Raises a descriptive exception on failure."""
+        if first_chunk is None:
+            raise RuntimeError(f"Download produced no data for {os.path.basename(dest)}")
+
+        sample = first_chunk[:16] if len(first_chunk) >= 16 else first_chunk
+        # Detect HTML (login pages, error pages)
+        head = sample.lstrip().lower()
+        if head.startswith(b"<!doctype html") or head.startswith(b"<html") or sample.startswith(b"<?xml"):
+            raise RuntimeError(
+                f"Downloaded file for {os.path.basename(dest)} is an HTML page, "
+                "not a model file. The URL may be gated, moved, or behind a login. "
+                "Check the URL or the model's repository on Hugging Face."
+            )
+        # Detect empty / very small payloads (anything that doesn't even look like a
+        # binary model header)
+        try:
+            file_size = os.path.getsize(tmp_path)
+        except OSError:
+            file_size = 0
+        if file_size < 1024:
+            raise RuntimeError(
+                f"Downloaded file for {os.path.basename(dest)} is too small "
+                f"({file_size} bytes). The URL may be broken or returning an error."
+            )
+        # Detect known model formats by magic header
+        # - GGUF: 'GGUF' (0x46475547) at offset 0
+        # - Safetensors: little-endian uint64 of JSON header length at offset 0
+        is_gguf = sample[:4] == b"GGUF"
+        is_safetensors = False
+        if len(sample) >= 8:
+            try:
+                header_len = int.from_bytes(sample[:8], "little")
+                # Safetensors header is reasonable JSON, should be 50-1MB
+                if 16 < header_len < 1024 * 1024:
+                    is_safetensors = True
+            except Exception:
+                pass
+        if not (is_gguf or is_safetensors):
+            raise RuntimeError(
+                f"Downloaded file for {os.path.basename(dest)} has an unknown header "
+                f"({sample[:8]!r}). Expected GGUF or safetensors format."
+            )
+
+    def _cleanup_download_entry(self, model_id):
+        if model_id in self.downloading and self.downloading[model_id].get("progress", 0.0) >= 1.0:
+            try:
+                del self.downloading[model_id]
+            except KeyError:
+                pass
+            self.settings_update()
+        return False
+
+    def _uninstall_variant(self, model_id):
+        """Remove an installed variant. Shared files are kept if used by other variants."""
+        manifest = self._read_manifest(model_id)
+        variant_dir = os.path.join(self.model_folder, model_id)
+
+        shared_refs = {}
+        for other in SD_MODELS:
+            if other["id"] == model_id:
+                continue
+            other_manifest = self._read_manifest(other["id"])
+            if not other_manifest:
+                continue
+            for role, path in (other_manifest.get("files", {}) or {}).items():
+                shared_refs[os.path.abspath(path)] = shared_refs.get(os.path.abspath(path), 0) + 1
+
+        if manifest:
+            for role, path in (manifest.get("files", {}) or {}).items():
+                try:
+                    if os.path.commonpath([os.path.abspath(path), os.path.abspath(self.shared_folder)]) == os.path.abspath(self.shared_folder):
+                        abs_path = os.path.abspath(path)
+                        if shared_refs.get(abs_path, 0) == 0:
+                            try:
+                                os.remove(abs_path)
+                            except FileNotFoundError:
+                                pass
+                except ValueError:
+                    pass
+
+        if os.path.exists(variant_dir):
+            shutil.rmtree(variant_dir, ignore_errors=True)
+
+    def open_model_library(self, button):
+        try:
+            root = button.get_root()
+        except Exception:
+            root = None
+        win = ModelLibraryWindow(self, root)
+        win.present()
 
     def _is_binary_installed(self) -> bool:
         """Check if the sd-cli binary is installed and executable."""
@@ -337,10 +1230,12 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
             model = self._resolve_model_path(self.get_setting("model"))
             port = self._get_server_port()
+            variant = self._variant_for_model_path(self.get_setting("model"))
+            variant_manifest = variant[1] if variant else None
 
             cmd = [
                 binary,
-                "-m", model,
+                *self._model_arg(model),
                 "--listen-port", str(port),
             ]
 
@@ -350,6 +1245,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             clip_skip = self.get_setting("clip_skip", True, -1)
             if clip_skip > 0:
                 cmd.extend(["--clip-skip", str(int(clip_skip))])
+
+            cmd.extend(self._build_advanced_args(variant_manifest))
 
             use_system = is_flatpak() and self.get_setting("use_system_sd", False, False)
             use_spawn = is_flatpak() and (use_system or (os.path.exists(self.sd_server_binary_path) and self.get_setting("gpu_acceleration", False, False)))
@@ -503,6 +1400,9 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         negative_prompt_template = self.get_setting("negative_prompt_template", True, "")
         positive_prompt_template = self.get_setting("positive_prompt_template", True, "[input]")
 
+        variant = self._variant_for_model_path(self.get_setting("model"))
+        variant_manifest = variant[1] if variant else None
+
         prompt = positive_prompt_template.replace("[input]", prompt)
 
         if negative_prompt_template:
@@ -510,7 +1410,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
         cmd = [
             binary,
-            "-m", model,
+            *self._model_arg(model),
             "-p", prompt,
             "-o", output_file,
             "-W", str(int(width)),
@@ -526,6 +1426,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
         if self._is_lora_enabled():
             cmd.extend(["--lora-model-dir", self._get_lora_dir()])
+
+        cmd.extend(self._build_advanced_args(variant_manifest))
 
         if negative_prompt_template:
             cmd.extend(["-n", negative_prompt])
