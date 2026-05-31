@@ -27,6 +27,12 @@ SCHEMA_ID = 'io.github.qwersyk.Newelle'
 AVAILABLE_INTEGRATIONS = [WebsiteReader, WebsearchIntegration, MermaidIntegration, MCPIntegration, SkillsIntegration, DefaultToolsIntegration, AgentToolsIntegration, FileEditingIntegration, TodoListIntegration]
 
 AVAILABLE_IMAGE_GENERATORS = {
+    "stablediffusioncpp": {
+        "key": "stablediffusioncpp",
+        "title": _("Stable Diffusion (Local)"),
+        "description": _("Run Stable Diffusion locally using stable-diffusion.cpp, with hardware acceleration support (CUDA, Vulkan, ROCm)."),
+        "class": StableDiffusionCPPHandler,
+    },
     "pollinations": {
         "key": "pollinations",
         "title": _("Pollinations AI"),
@@ -45,12 +51,6 @@ AVAILABLE_IMAGE_GENERATORS = {
         "description": _("Generate images using OpenRouter's Chat Completions endpoint with the modalities parameter. Supports image-capable models like Gemini, Flux, Recraft, Sourceful and more."),
         "class": OpenRouterImageHandler,
         "website": "https://openrouter.ai/models?output_modalities=image",
-    },
-    "stablediffusioncpp": {
-        "key": "stablediffusioncpp",
-        "title": _("Stable Diffusion (Local)"),
-        "description": _("Run Stable Diffusion locally using stable-diffusion.cpp, with hardware acceleration support (CUDA, Vulkan, ROCm)."),
-        "class": StableDiffusionCPPHandler,
     },
 }
 
