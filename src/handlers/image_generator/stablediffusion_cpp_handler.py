@@ -1,6 +1,8 @@
 from .image_generator import ImageGeneratorHandler
 from ...handlers.extra_settings import ExtraSettings
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
+from ...utility.media import get_image_path
+from ...tools import Tool, ToolResult
 from ...handlers import ErrorSeverity
 from ...ui.model_library import ModelLibraryWindow, LibraryModel
 import subprocess
@@ -186,6 +188,46 @@ SD_MODELS = [
             {"role": "llm", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", "filename": "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", "shared": False},
         ],
         "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--flow-shift", "3"],
+    },
+    {
+        "id": "qwen-image-edit-q8_0",
+        "family": "qwen_image_edit",
+        "display": "Qwen Image Edit Q8_0",
+        "description": "Qwen Image Edit. Takes a reference image plus an instruction prompt. Shares the Qwen Image VAE and LLM. Requires --diffusion-model and -r flags at runtime.",
+        "tags": ["qwen", "image-edit", "gguf", "q8_0", "18GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/QuantStack/Qwen-Image-Edit-GGUF/resolve/main/Qwen_Image_Edit-Q8_0.gguf", "filename": "Qwen_Image_Edit-Q8_0.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors", "filename": "qwen_image_vae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", "filename": "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--flow-shift", "3"],
+    },
+    {
+        "id": "qwen-image-edit-2509-q4_k_s",
+        "family": "qwen_image_edit",
+        "display": "Qwen Image Edit 2509 Q4_K_S",
+        "description": "Qwen Image Edit 2509. Adds --llm_vision (vision projector) for stronger instruction following. Needs an additional ~1 GB mmproj file.",
+        "tags": ["qwen", "image-edit", "gguf", "q4_k_s", "2509", "18GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/main/Qwen-Image-Edit-2509-Q4_K_S.gguf", "filename": "Qwen-Image-Edit-2509-Q4_K_S.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors", "filename": "qwen_image_vae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.Q8_0.gguf", "filename": "Qwen2.5-VL-7B-Instruct.Q8_0.gguf", "shared": False},
+            {"role": "llm_vision", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.mmproj-Q8_0.gguf", "filename": "Qwen2.5-VL-7B-Instruct.mmproj-Q8_0.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--flow-shift", "3"],
+    },
+    {
+        "id": "qwen-image-edit-2511-q4_k_m",
+        "family": "qwen_image_edit",
+        "display": "Qwen Image Edit 2511 Q4_K_M",
+        "description": "Qwen Image Edit 2511. Uses a safetensors LLM and requires --qwen-image-zero-cond-t (set automatically).",
+        "tags": ["qwen", "image-edit", "gguf", "q4_k_m", "2511", "20GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF/resolve/main/qwen-image-edit-2511-Q4_K_M.gguf", "filename": "qwen-image-edit-2511-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors", "filename": "qwen_image_vae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b.safetensors", "filename": "qwen_2.5_vl_7b.safetensors", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--flow-shift", "3", "--qwen-image-zero-cond-t"],
     },
     {
         "id": "z-image-turbo-q4_k",
@@ -459,6 +501,74 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             )
         )
 
+        # Image editing (Qwen Image Edit). The toggle is always shown; the
+        # nested configuration only appears when the toggle is on, so we
+        # re-emit get_extra_settings() on toggle change (update_settings=True)
+        # and conditionally append the nested block.
+        self._sync_edit_settings_with_model()
+        settings.append(
+            ExtraSettings.ToggleSetting(
+                "enable_image_editing",
+                "Enable Image Editing",
+                "Enable the Qwen Image Edit model and the edit_image tool. Requires a downloaded Qwen Image Edit variant from the Model Library (and, for the 2509 variant, a vision projector file).",
+                False,
+                update_settings=True,
+            )
+        )
+        if self.get_setting("enable_image_editing", False, False):
+            edit_model_list = self._get_model_list(family="qwen_image_edit")
+            settings.append(
+                ExtraSettings.NestedSetting(
+                    "image_editing_settings",
+                    "Image Editing Settings",
+                    "Configure the Qwen Image Edit model, its text encoders and editing-specific overrides.",
+                    [
+                        ExtraSettings.ComboSetting(
+                            "edit_model",
+                            "Edit Model",
+                            "Stable Diffusion model to use for image editing. Pick a downloaded Qwen Image Edit variant or a custom file.",
+                            edit_model_list,
+                            edit_model_list[0][1] if len(edit_model_list) > 0 else "",
+                            folder=self.model_folder,
+                            update_settings=True,
+                        ),
+                        ExtraSettings.EntrySetting(
+                            "edit_vae_path",
+                            "Edit VAE",
+                            "Path to the VAE used by Qwen Image Edit (--vae). Leave empty to use the model default or the variant manifest.",
+                            "",
+                            folder=self.model_folder,
+                        ),
+                        ExtraSettings.EntrySetting(
+                            "edit_llm_path",
+                            "Edit LLM (Qwen 2.5 VL)",
+                            "Path to the LLM text encoder (--llm) used by the Qwen Image Edit model.",
+                            "",
+                            folder=self.model_folder,
+                        ),
+                        ExtraSettings.EntrySetting(
+                            "edit_llm_vision_path",
+                            "Edit LLM Vision Projector (2509 only)",
+                            "Path to the vision projector file (--llm_vision) used by the Qwen Image Edit 2509 variant.",
+                            "",
+                            folder=self.model_folder,
+                        ),
+                        ExtraSettings.ToggleSetting(
+                            "edit_qwen_image_zero_cond_t",
+                            "Edit: Qwen Image Zero Cond T (2511)",
+                            "Enable zero_cond_t for Qwen Image Edit (--qwen-image-zero-cond-t). Required for the 2511 variant for good results.",
+                            False,
+                        ),
+                        ExtraSettings.MultilineEntrySetting(
+                            "edit_extra_cli_args",
+                            "Edit Extra CLI Arguments",
+                            "Additional command-line arguments passed verbatim to sd-cli for image editing. One per line.",
+                            "",
+                        ),
+                    ],
+                )
+            )
+
         # Advanced settings
         settings.append(
             ExtraSettings.NestedSetting(
@@ -609,7 +719,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
         return settings
 
-    def _get_model_list(self, update=False):
+    def _get_model_list(self, update=False, family=None):
         """Get available model files in the model folder.
 
         Library-installed variants are listed first with their display name,
@@ -619,6 +729,13 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         Files that are part of any installed variant's manifest (such as a
         variant's VAE, LLM, T5XXL, etc.) are intentionally hidden from the
         list, since the variant is already represented by its diffusion entry.
+
+        Args:
+            update: If True, refresh the settings UI after collecting the list.
+            family: If set, only include library variants whose ``family``
+                matches this string and only loose files with a matching
+                variant name. Used by the image-editing model picker to
+                restrict the list to ``qwen_image_edit`` variants.
         """
         model_list = []
         seen = set()
@@ -626,6 +743,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         variant_owned_paths = self._variant_owned_paths()
 
         for entry in SD_MODELS:
+            if family is not None and entry.get("family") != family:
+                continue
             manifest_path = self._manifest_path(entry["id"])
             if os.path.exists(manifest_path):
                 try:
@@ -767,6 +886,80 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         except Exception:
             pass
 
+    def _sync_edit_settings_with_model(self):
+        """Auto-populate or clear the image-editing settings based on the
+        currently selected ``edit_model``.
+
+        Mirrors :meth:`_sync_special_settings_with_model` for the edit
+        pipeline: when the user picks a ``qwen_image_edit`` library variant
+        the VAE / LLM / llm_vision paths and the ``--qwen-image-zero-cond-t``
+        toggle are filled in from the variant manifest; when the user picks a
+        custom (loose) file the previously synced values are cleared so they
+        don't bleed across models. If both the previous and current model are
+        custom, the user's manual edits are preserved.
+
+        The sync runs at most once per model change, tracked via the
+        ``_last_synced_edit_model`` setting which is persisted across sessions.
+        """
+        try:
+            current_model = self.get_setting("edit_model", False, "") or ""
+        except Exception:
+            current_model = ""
+        try:
+            last_synced = self.get_setting("_last_synced_edit_model", False, "") or ""
+        except Exception:
+            last_synced = ""
+        if current_model == last_synced:
+            return
+
+        edit_settings = [
+            "edit_vae_path",
+            "edit_llm_path",
+            "edit_llm_vision_path",
+        ]
+
+        current_is_variant = self._variant_for_model_path(current_model) is not None
+        previous_was_variant = (
+            last_synced != "" and self._variant_for_model_path(last_synced) is not None
+        )
+
+        if current_is_variant:
+            _, manifest = self._variant_for_model_path(current_model)
+            files = manifest.get("files", {}) or {}
+            cli_extra = manifest.get("cli_extra", []) or []
+            for role, key in (
+                ("vae", "edit_vae_path"),
+                ("llm", "edit_llm_path"),
+                ("llm_vision", "edit_llm_vision_path"),
+            ):
+                value = files.get(role) or ""
+                try:
+                    self.set_setting(key, value)
+                except Exception:
+                    pass
+            try:
+                self.set_setting(
+                    "edit_qwen_image_zero_cond_t",
+                    "--qwen-image-zero-cond-t" in cli_extra,
+                )
+            except Exception:
+                pass
+        elif previous_was_variant:
+            for key in edit_settings:
+                try:
+                    self.set_setting(key, "")
+                except Exception:
+                    pass
+            try:
+                self.set_setting("edit_qwen_image_zero_cond_t", False)
+            except Exception:
+                pass
+
+        try:
+            self.set_setting("_last_synced_edit_model", current_model)
+        except Exception:
+            pass
+
 
     def _get_lora_dir(self) -> str:
         """Return the LoRA folder path from settings, or the default."""
@@ -842,12 +1035,21 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 return entry, manifest
         return None
 
-    def _build_advanced_args(self, variant_manifest=None):
+    def _build_advanced_args(self, variant_manifest=None, edit_mode=False):
         """Build a list of additional CLI args from advanced settings and the
         optional variant manifest.
 
         Variant-provided defaults are used when the user has not overridden
         the corresponding path setting.
+
+        Args:
+            variant_manifest: The manifest dict of the currently selected
+                variant. Used for variant-provided defaults.
+            edit_mode: When True, the setting keys used for the encoder paths
+                and zero-cond-t flag are read from the ``edit_*`` settings
+                (used by the Qwen Image Edit pipeline), and ``--llm_vision``
+                is emitted when an ``llm_vision`` role is present in the
+                manifest or in the user settings.
         """
         args = []
 
@@ -867,13 +1069,17 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             if path:
                 args.extend([flag, path])
 
-        add_file_arg("--vae", "vae_path", "vae")
-        add_file_arg("--llm", "llm_path", "llm")
+        vae_key = "edit_vae_path" if edit_mode else "vae_path"
+        llm_key = "edit_llm_path" if edit_mode else "llm_path"
+        add_file_arg("--vae", vae_key, "vae")
+        add_file_arg("--llm", llm_key, "llm")
         add_file_arg("--clip_l", "clip_l_path", "clip_l")
         add_file_arg("--clip_g", "clip_g_path", "clip_g")
         add_file_arg("--t5xxl", "t5xxl_path", "t5xxl")
         add_file_arg("--audio-vae", "audio_vae_path", "audio_vae")
         add_file_arg("--embeddings-connectors", "embeddings_connectors_path", "embeddings")
+        if edit_mode:
+            add_file_arg("--llm_vision", "edit_llm_vision_path", "llm_vision")
 
         if self.get_setting("offload_to_cpu", False, False):
             args.append("--offload-to-cpu")
@@ -889,7 +1095,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             args.append("--chroma-disable-dit-mask")
         if self.get_setting("chroma_enable_t5_mask", False, False):
             args.append("--chroma-enable-t5-mask")
-        if self.get_setting("qwen_image_zero_cond_t", False, False):
+        zero_cond_setting = "edit_qwen_image_zero_cond_t" if edit_mode else "qwen_image_zero_cond_t"
+        if self.get_setting(zero_cond_setting, False, False):
             args.append("--qwen-image-zero-cond-t")
 
         flow_shift = self.get_setting("flow_shift", True, 0.0)
@@ -912,7 +1119,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         if rng and rng != "cuda":
             args.extend(["--rng", str(rng)])
 
-        extra_cli = self.get_setting("extra_cli_args", True, "") or ""
+        extra_cli_key = "edit_extra_cli_args" if edit_mode else "extra_cli_args"
+        extra_cli = self.get_setting(extra_cli_key, True, "") or ""
         for line in extra_cli.splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
@@ -1470,6 +1678,329 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             raise TimeoutError("Image generation timed out after 10 minutes")
         except Exception as e:
             raise RuntimeError(f"Image generation failed: {e}")
+
+    # ── Tools ───────────────────────────────────────────────────────
+
+    def get_tools(self) -> list:
+        """Return the list of tools exposed by this handler.
+
+        The base class returns a single ``generate_image`` tool. We add a
+        second ``edit_image`` tool when the user has enabled image editing
+        in the handler's settings. The tool registry is rebuilt whenever
+        a setting on this handler changes, so toggling image editing has
+        an immediate effect on the tool set the LLM sees.
+        """
+        from ...ui.widgets.image_generator import ImageGeneratorWidget
+        # Use closures so the Tool instance picks up the right bound methods
+        # even though get_tools() is called multiple times.
+        tools = [Tool(
+            "generate_image",
+            "Generate an image from a text prompt. Use detailed, descriptive prompts with English words separated by commas.",
+            self._generate_image_tool,
+            title="Generate Image",
+            restore_func=self._restore_image_tool,
+            icon_name="insert-image-symbolic",
+        )]
+
+        if self.get_setting("enable_image_editing", False, False):
+            def _edit_image_tool(prompt: str, reference_image: str, msg_uuid=None):
+                return self._edit_image_tool(prompt, reference_image, msg_uuid)
+
+            def _edit_image_restore(msg_uuid, prompt):
+                return self._edit_image_restore(msg_uuid, prompt)
+
+            tools.append(Tool(
+                "edit_image",
+                (
+                    "Edit an existing image with a text instruction. The "
+                    "'reference_image' argument must be the path (or data: URI) "
+                    "of the input image — typically the value inside a ```image``` "
+                    "codeblock in the most recent user message. Requires the "
+                    "'Enable Image Editing' toggle in stable-diffusion.cpp settings."
+                ),
+                _edit_image_tool,
+                title="Edit Image",
+                restore_func=_edit_image_restore,
+                icon_name="image-edit-symbolic",
+                default_on=True,
+                tools_group="Image Generation",
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": (
+                                "The editing instruction, e.g. "
+                                "'change the background to a sunset'."
+                            ),
+                        },
+                        "reference_image": {
+                            "type": "string",
+                            "description": (
+                                "Absolute path or data: URI of the image to edit. "
+                                "Copy it from the ```image``` block in the most "
+                                "recent user message."
+                            ),
+                        },
+                    },
+                    "required": ["prompt", "reference_image"],
+                },
+            ))
+        return tools
+
+    def _edit_image_tool(self, prompt: str, reference_image: str, msg_uuid=None):
+        """Tool function for the edit_image tool.
+
+        Validates the configuration, normalizes the reference image, builds
+        a widget, kicks off the edit in a background thread and returns a
+        ``ToolResult`` with the widget attached.
+        """
+        from ...ui.widgets.image_generator import ImageGeneratorWidget
+
+        result = ToolResult()
+
+        if not self.get_setting("enable_image_editing", False, False):
+            result.set_output(
+                "Image editing is disabled. Enable the 'Enable Image Editing' "
+                "toggle in the stable-diffusion.cpp handler settings."
+            )
+            return result
+
+        if not self._is_binary_installed():
+            result.set_output(
+                "stable-diffusion.cpp is not installed. Please install it from "
+                "the Model Library before using image editing."
+            )
+            return result
+
+        edit_model_value = self.get_setting("edit_model", True, "") or ""
+        if not edit_model_value:
+            result.set_output(
+                "No image editing model is configured. Pick a Qwen Image Edit "
+                "variant in 'Image Editing Settings' (downloadable from the Model "
+                "Library)."
+            )
+            return result
+
+        edit_model_path = self._resolve_model_path(edit_model_value)
+        if not os.path.exists(edit_model_path):
+            result.set_output(
+                f"Image editing model not found at {edit_model_path}. "
+                "Re-download it from the Model Library or pick a different model."
+            )
+            return result
+
+        # Normalize data: URIs into a local file we control.
+        try:
+            ref_path = get_image_path(reference_image or "")
+        except Exception as e:
+            result.set_output(f"Invalid reference_image argument: {e}")
+            return result
+        if not ref_path or not os.path.exists(ref_path):
+            result.set_output(
+                "Could not find the reference image. Pass the absolute path "
+                "of the image (or a data: URI) in the 'reference_image' argument."
+            )
+            return result
+
+        # Persist the reference image into our cache so it survives even if
+        # /tmp is cleaned up. Use msg_uuid for a stable, unique name.
+        try:
+            ext = os.path.splitext(ref_path)[1].lower() or ".png"
+            if ext not in (".png", ".jpg", ".jpeg", ".webp", ".bmp"):
+                ext = ".png"
+            cached_ref = os.path.join(self.cache_dir, f"edit_input_{msg_uuid}{ext}")
+            shutil.copyfile(ref_path, cached_ref)
+            ref_path = cached_ref
+        except Exception as e:
+            print(f"Failed to cache reference image: {e}")
+
+        widget = ImageGeneratorWidget(width=400, height=400)
+        widget.set_prompt(prompt)
+        result.set_widget(widget)
+        self._edit_and_display(prompt, ref_path, widget, msg_uuid)
+        return result
+
+    def _edit_image_restore(self, msg_uuid, prompt):
+        """Restore function for the edit_image tool.
+
+        Rebuilds the widget from the cached output PNG so the chat can be
+        reloaded and still show the edited image.
+        """
+        from ...ui.widgets.image_generator import ImageGeneratorWidget
+        widget = ImageGeneratorWidget(width=400, height=400)
+        widget.set_prompt(prompt)
+        cached_path = self.cache_path_for(msg_uuid)
+        if os.path.exists(cached_path):
+            widget.set_image_from_path(cached_path)
+        return ToolResult(widget=widget)
+
+    def _edit_and_display(
+        self,
+        prompt: str,
+        reference_image: str,
+        widget,
+        msg_uuid: str,
+    ):
+        """Run image editing in a background thread and update the widget when done.
+
+        Mirrors the base class's ``generate_and_display`` but tailored for the
+        edit pipeline: it always invokes sd-cli (not sd-server), uses the
+        edit-specific settings, and passes the reference image via ``-r``.
+        """
+        output_path = self.cache_path_for(msg_uuid)
+
+        def edit():
+            try:
+                image_source = self.edit_image(
+                    prompt, reference_image, msg_uuid, output_file=output_path
+                )
+                if image_source and image_source.startswith(("http://", "https://")):
+                    image_source = self._download_image(image_source, output_path)
+            except Exception as e:
+                print(f"Image editing failed: {e}")
+                image_source = None
+            GLib.idle_add(self._set_image_on_widget, widget, image_source, msg_uuid)
+
+        threading.Thread(target=edit).start()
+
+    def edit_image(
+        self,
+        prompt: str,
+        reference_image: str,
+        msg_uuid: str,
+        output_file: str = None,
+    ) -> str:
+        """Edit an image using stable-diffusion.cpp's Qwen Image Edit pipeline.
+
+        Always runs ``sd-cli`` (the sd-server HTTP API has no documented image
+        editing endpoint), reads the edit settings from the handler, and
+        assembles a command line that includes ``-r <reference_image>``,
+        the edit model via ``--diffusion-model``, the configured
+        ``--vae`` / ``--llm`` / ``--llm_vision`` paths, the
+        ``--qwen-image-zero-cond-t`` flag when enabled, and the standard
+        generation parameters.
+
+        Args:
+            prompt: The editing instruction.
+            reference_image: Absolute path to the input image.
+            msg_uuid: Unique message identifier for caching.
+            output_file: Optional local file path to save the edited image.
+
+        Returns:
+            str: Local file path to the edited image.
+        """
+        from ...ui.widgets.image_generator import ImageGeneratorWidget  # noqa: F401  (kept for consistency)
+
+        if output_file is None:
+            output_file = os.path.join(self.cache_dir, f"{msg_uuid}.png")
+
+        if not self._is_binary_installed():
+            raise FileNotFoundError(
+                "stable-diffusion.cpp is not installed. Please install it first."
+            )
+
+        edit_model_setting = self.get_setting("edit_model", True, "") or ""
+        if not edit_model_setting:
+            raise ValueError(
+                "No image editing model is configured. Pick a Qwen Image Edit "
+                "variant in 'Image Editing Settings'."
+            )
+        edit_model = self._resolve_model_path(edit_model_setting)
+        if not os.path.exists(edit_model):
+            raise FileNotFoundError(f"Image editing model not found: {edit_model}")
+
+        if not reference_image or not os.path.exists(reference_image):
+            raise FileNotFoundError(f"Reference image not found: {reference_image}")
+
+        binary = self._get_binary_path()
+        width = self.get_setting("width", True, 512)
+        height = self.get_setting("height", True, 512)
+        steps = self.get_setting("steps", True, 20)
+        cfg_scale = self.get_setting("cfg_scale", True, 7.0)
+        seed = self.get_setting("seed", True, -1)
+        sampling_method = self.get_setting("sampling_method", True, "euler_a")
+        clip_skip = self.get_setting("clip_skip", True, -1)
+        positive_prompt_template = self.get_setting("positive_prompt_template", True, "[input]")
+        negative_prompt_template = self.get_setting("negative_prompt_template", True, "")
+
+        variant = self._variant_for_model_path(edit_model_setting)
+        variant_manifest = variant[1] if variant else None
+
+        full_prompt = positive_prompt_template.replace("[input]", prompt)
+        negative_prompt = ""
+        if negative_prompt_template:
+            negative_prompt = negative_prompt_template.replace("[input]", full_prompt)
+
+        cmd = [
+            binary,
+            *self._model_arg(edit_model),
+            "-p", full_prompt,
+            "-o", output_file,
+            "-W", str(int(width)),
+            "-H", str(int(height)),
+            "--steps", str(int(steps)),
+            "--cfg-scale", str(float(cfg_scale)),
+            "-s", str(int(seed)),
+            "--sampling-method", str(sampling_method),
+            "-r", reference_image,
+        ]
+
+        if clip_skip > 0:
+            cmd.extend(["--clip-skip", str(int(clip_skip))])
+
+        if self._is_lora_enabled():
+            cmd.extend(["--lora-model-dir", self._get_lora_dir()])
+
+        cmd.extend(self._build_advanced_args(variant_manifest, edit_mode=True))
+
+        if negative_prompt_template:
+            cmd.extend(["-n", negative_prompt])
+
+        # Edit always uses CLI (sd-server has no documented image editing
+        # endpoint). Apply the same Flatpak/LD_LIBRARY_PATH plumbing as
+        # generate_image() above.
+        use_system = is_flatpak() and self.get_setting("use_system_sd", False, False)
+        use_spawn = is_flatpak() and (
+            use_system
+            or (self._is_binary_installed() and self.get_setting("gpu_acceleration", False, False))
+        )
+        if use_spawn:
+            cmd = get_spawn_command() + cmd
+
+        env = os.environ.copy()
+        if binary == self.sd_binary_path:
+            bin_dir = os.path.dirname(binary)
+            if use_spawn:
+                cmd = cmd[:1] + [f"--env=LD_LIBRARY_PATH={bin_dir}"] + cmd[1:]
+            else:
+                existing = env.get("LD_LIBRARY_PATH", "")
+                env["LD_LIBRARY_PATH"] = bin_dir if not existing else f"{bin_dir}:{existing}"
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=600, env=env
+            )
+            if result.returncode != 0:
+                print(f"sd-cli edit error: {result.stderr}")
+                raise RuntimeError(
+                    f"sd-cli image editing failed: {result.stderr}"
+                )
+
+            if not os.path.exists(output_file):
+                alt_output = output_file
+                if not alt_output.endswith(".png"):
+                    alt_output = output_file + ".png"
+                if os.path.exists(alt_output):
+                    return alt_output
+                raise FileNotFoundError(f"Output file not created: {output_file}")
+
+            return output_file
+
+        except subprocess.TimeoutExpired:
+            raise TimeoutError("Image editing timed out after 10 minutes")
+        except Exception as e:
+            raise RuntimeError(f"Image editing failed: {e}")
 
     # ── Installation dialog ────────────────────────────────────────────
 
