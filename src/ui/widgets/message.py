@@ -50,12 +50,15 @@ class Message(Gtk.Box):
             "should_continue": False,
         }
         
-        # Styling
-        self.set_margin_top(10)
-        self.set_margin_start(10)
-        self.set_margin_bottom(10)
-        self.set_margin_end(10)
-        
+        # Styling: inner spacing is provided by the .bubble padding in chat_history;
+        # keep margins at zero to avoid double-spacing with the bubble padding.
+        self.set_margin_top(0)
+        self.set_margin_start(0)
+        self.set_margin_bottom(0)
+        self.set_margin_end(0)
+        # Fill the available width so assistant text wraps to the full row width.
+        self.set_hexpand(True)
+
         if is_user:
             self.add_css_class("user-message")
         else:
@@ -263,16 +266,24 @@ class Message(Gtk.Box):
 
     def _process_text(self, chunk, box):
         text = re.sub(r'\n{2,}', '\n', chunk.text)
-        box.append(Gtk.Label(
+        label_kwargs = dict(
             label=markwon_to_pango(text, validate=not self.streaming),
             wrap=True,
-            halign=Gtk.Align.START,
             wrap_mode=Pango.WrapMode.WORD_CHAR,
             width_chars=1,
             selectable=True,
             use_markup=True,
             css_classes=["message-text"],
-        ))
+        )
+        if self.is_user:
+            # User bubbles stay compact.
+            label_kwargs["halign"] = Gtk.Align.START
+            label_kwargs["max_width_chars"] = 72
+        else:
+            # Assistant text fills the available row width (left-aligned).
+            label_kwargs["halign"] = Gtk.Align.FILL
+            label_kwargs["xalign"] = 0
+        box.append(Gtk.Label(**label_kwargs))
 
     def _process_divider(self, box):
         box.append(Gtk.Separator(
