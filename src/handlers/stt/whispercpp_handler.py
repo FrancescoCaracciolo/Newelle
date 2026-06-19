@@ -33,6 +33,7 @@ WHISPER_MODELS = [
     {"model_name": "large-v3-turbo-q5_0", "display_name": "Large v3 Turbo Q5_0", "size": "547 MiB", "size_bytes": 573513728},
 ]
 
+COMMIT = "2eeeba56e9edd762b4b38467bab96c2517163158"
 
 class WhisperCPPHandler(STTHandler):
     key = "whispercpp"
@@ -189,7 +190,7 @@ class WhisperCPPHandler(STTHandler):
         os.makedirs(os.path.join(self.path, "whisper"), exist_ok=True)
         print("Installing whisper...")
         path = os.path.join(self.path, "whisper")
-        installation_script = f"cd {path} && git clone https://github.com/ggerganov/whisper.cpp.git && cd whisper.cpp && git checkout 9386f239401074690479731c1e41683fbbeac557 && sh ./models/download-ggml-model.sh tiny && cmake -B build && cmake --build build -j --config Release"
+        installation_script = f"cd {path} && git clone https://github.com/ggerganov/whisper.cpp.git && cd whisper.cpp && git checkout {COMMIT} && sh ./models/download-ggml-model.sh tiny && cmake -B build && cmake --build build -j --config Release"
         out = subprocess.check_output(get_spawn_command() + ["bash", "-c", installation_script])
         exec_path = os.path.join(path, "whisper.cpp/build/bin/whisper-cli")
         if not os.path.exists(exec_path):
@@ -233,7 +234,10 @@ class WhisperCPPHandler(STTHandler):
                     cmd = get_spawn_command() + [exec_path]
                 else:
                     exec_path = server_path
-                    cmd = [exec_path]
+                    if self.get_setting("gpu_acceleration", False, False):
+                        cmd = get_spawn_command() + [exec_path]
+                    else:
+                        cmd = [exec_path]
 
                 self._use_server = True
             else:
@@ -713,9 +717,10 @@ class WhisperCPPHandler(STTHandler):
             if not run_cmd(clone_cmd):
                 raise Exception("Failed to clone whisper.cpp repository")
 
-            checkout_cmd = ["git", "checkout", "9386f239401074690479731c1e41683fbbeac557"]
+            # Checkout specific commit for reproducible builds
+            checkout_cmd = ["git", "checkout", COMMIT]
             if not run_cmd(checkout_cmd, cwd=abs_whisper_cpp_path):
-                raise Exception("Failed to checkout whisper.cpp commit")
+                raise Exception(f"Failed to checkout whisper.cpp commit {COMMIT}")
 
             GLib.idle_add(set_progress, 0.2)
             GLib.idle_add(append_log, "Configuring CMake build...\n")
