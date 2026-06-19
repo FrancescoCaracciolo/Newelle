@@ -488,7 +488,7 @@ class ChatHistory(Gtk.Box):
     def _is_continuation(self, user_type, id_message, profile_name=None):
         """True when the previous real chat entry is the same sender, so consecutive
         messages can be grouped (avatar/name hidden)."""
-        if id_message is None or id_message <= 0 or id_message > len(self.chat):
+        if id_message is None or id_message <= 0 or id_message >= len(self.chat):
             return False
 
         def side(u):
@@ -790,7 +790,7 @@ class ChatHistory(Gtk.Box):
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         edit_button = Gtk.Button(
             icon_name="document-edit-symbolic",
-            css_classes=["flat"],
+            css_classes=["flat", "success"],
             valign=Gtk.Align.CENTER,
             name=id,
         )
@@ -798,7 +798,7 @@ class ChatHistory(Gtk.Box):
         edit_button.connect("clicked", self.edit_message, None, None, None, box, apply_edit_stack)
         copy_button = Gtk.Button(
             icon_name="edit-copy-symbolic",
-            css_classes=["flat"],
+            css_classes=["flat", "accent"],
             valign=Gtk.Align.CENTER,
         )
         copy_button.set_tooltip_text(_("Copy"))
@@ -816,7 +816,7 @@ class ChatHistory(Gtk.Box):
             actions.append(info_button)
         branch_button = Gtk.Button(
             icon_name="branch-symbolic",
-            css_classes=["flat"],
+            css_classes=["flat", "warning"],
             valign=Gtk.Align.CENTER,
             name=id,
         )
