@@ -2,8 +2,9 @@ from typing import Any
 import threading 
 import os 
 import shutil
-import json 
-import time 
+import json
+import time
+import traceback
 from subprocess import Popen 
 
 from gi.repository import Gtk, Adw, Gio, GLib, GObject, Gdk, GtkSource
@@ -1444,9 +1445,11 @@ class Settings(Adw.PreferencesWindow):
         # Add server form
         add_row = Adw.ExpanderRow(title=_("Add Server"), subtitle=_("Add a new MCP server"), icon_name="list-add-symbolic")
         
-        # Server type selector (only show stdio option if not in flatpak)
+        # Server type selector. stdio spawns a local command: outside flatpak it
+        # runs directly; inside flatpak it runs on the host via flatpak-spawn,
+        # which requires sandbox escape (granted by the manifest's talk-name).
         self.mcp_server_type = "http"
-        can_use_stdio = not is_flatpak()
+        can_use_stdio = (not is_flatpak()) or can_escape_sandbox()
         
         if can_use_stdio:
             type_row = Adw.ActionRow(title=_("Server Type"), subtitle=_("HTTP or local command (stdio)"))
@@ -1568,7 +1571,11 @@ class Settings(Adw.PreferencesWindow):
         self.mcp_stdio_rows = []
         
         # Command entry (required for stdio)
-        cmd_row = Adw.ActionRow(title=_("Command"), subtitle=_("Executable path or command name"))
+        if is_flatpak():
+            cmd_subtitle = _("Executable path or command name (runs on the host system)")
+        else:
+            cmd_subtitle = _("Executable path or command name")
+        cmd_row = Adw.ActionRow(title=_("Command"), subtitle=cmd_subtitle)
         cmd_row.add_css_class("property")
         self.mcp_command_entry = Gtk.Entry(valign=Gtk.Align.CENTER, placeholder_text="npx", hexpand=True, width_chars=30)
         cmd_row.add_suffix(self.mcp_command_entry)
@@ -1679,7 +1686,8 @@ class Settings(Adw.PreferencesWindow):
                         GLib.idle_add(self.refresh_mcp_servers_list)
                         GLib.idle_add(self.refresh_tools_list)
                     except Exception as e:
-                        err_msg = str(getattr(e, "__cause__", e) or e)
+                        traceback.print_exc()
+                        err_msg = self._mcp_error_message(e)
                         GLib.idle_add(self.app.win.show_error_dialog, _("Error"), _("Failed to add MCP server: {}").format(err_msg))
                     finally:
                         GLib.idle_add(self._enable_mcp_form)
@@ -1803,6 +1811,38 @@ class Settings(Adw.PreferencesWindow):
         self.mcp_command_entry.set_text("")
         self.mcp_args_entry.set_text("")
         self.mcp_env_text.get_buffer().set_text("{}")
+
+    def _mcp_error_message(self, exc):
+        """Extract a readable message from an MCP exception.
+
+        asyncio wraps failures in an ExceptionGroup, which formats as
+        'TaskGroup (1 sub exception)'. Recurse into any nested groups to surface
+        the real underlying cause (e.g. FileNotFoundError for a missing command)
+        instead of that opaque wrapper.
+        """
+        try:
+            group_types = (ExceptionGroup, BaseExceptionGroup)
+        except NameError:  # Python < 3.11
+            group_types = ()
+        messages = []
+        seen = set()
+
+        def walk(e):
+            if id(e) in seen:
+                return
+            seen.add(id(e))
+            if group_types and isinstance(e, group_types):
+                for sub in e.exceptions:
+                    walk(sub)
+                return
+            text = str(e).strip()
+            if not text:
+                text = type(e).__name__
+            if text not in messages:
+                messages.append(text)
+
+        walk(exc)
+        return "; ".join(messages) if messages else str(exc)
 
     def _get_mcp_cached_tool_count(self, identifier):
         """Return the number of cached tools for a given server identifier."""
