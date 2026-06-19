@@ -1077,7 +1077,9 @@ class ChatHistory(Gtk.Box):
         entry.set_margin_top(10)
         entry.set_margin_start(10)
         entry.set_margin_bottom(10)
-        entry.set_size_request(wmax, hmax)
+        # Size the editor to the old message, minus the entry's own margins
+        # (10px each side) so it fits the original area without overflowing.
+        entry.set_size_request(max(1, wmax - 20), max(1, hmax - 20))
         # Change the stack to edit controls and reveal the floating toolbar
         apply_edit_stack.set_visible_child_name("apply")
         apply_edit_stack.set_visible(True)
