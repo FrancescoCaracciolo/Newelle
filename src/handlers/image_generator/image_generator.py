@@ -206,5 +206,6 @@ class ImageGeneratorHandler(Handler):
             self._generate_image_tool,
             title="Generate Image",
             restore_func=self._restore_image_tool,
-            icon_name="insert-image-symbolic"
+            icon_name="insert-image-symbolic",
+            default_on=False
         )]
