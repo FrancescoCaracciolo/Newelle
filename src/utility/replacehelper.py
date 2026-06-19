@@ -27,6 +27,8 @@ class ReplaceHelper:
         if ReplaceHelper.DISTRO is None:
             try:
                 ReplaceHelper.DISTRO = subprocess.check_output(get_spawn_command() + ['bash', '-c', 'lsb_release -ds']).decode('utf-8').strip()
+                if ReplaceHelper.DISTRO == "\"Arch Linux\"" and os.path.exists(os.path.expanduser("~/.config/nyarch")):
+                    ReplaceHelper.DISTRO = "Nyarch Linux"
             except subprocess.CalledProcessError:
                 ReplaceHelper.DISTRO = "Unknown"
         
