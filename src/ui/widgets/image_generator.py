@@ -16,13 +16,16 @@ class ImageGeneratorWidget(Gtk.Box):
         self.current_pixbuf = None
         self.current_url = None
         self.prompt = None  # Store the original prompt
+
+        self.set_margin_start(5)
+        
         # Set up CSS for loading animation
         self.setup_css()
 
         # Create the main container
         self.image_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.image_container.set_size_request(self.width, self.height)
-        self.image_container.set_halign(Gtk.Align.CENTER)
+        self.image_container.set_halign(Gtk.Align.START)
         self.image_container.set_valign(Gtk.Align.CENTER)
 
 
