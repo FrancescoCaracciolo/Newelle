@@ -508,7 +508,7 @@ When using a tool, output **only** a single valid JSON object:
 2. Ensure valid JSON: no comments, trailing commas, or extra text.
 3. Use only the tools listed below and only their defined arguments.
 4. **After invoking a tool, stop generating immediately.** Wait for the result before continuing.
-5. Some tools are shown in compact form (without parameters). Before using these, call `tool_search` with the tool name to retrieve the full parameter schema.
+5. Some tools are shown in **compact form** (only name and description, no `parameters`), marked "(compact: ...)". **You MUST call `tool_search` with the tool name to fetch its schema BEFORE calling the tool itself.** Calling a compact tool directly with guessed or missing arguments is an error and will be rejected.
 
 ## Available Tools
 

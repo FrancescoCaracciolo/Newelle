@@ -235,6 +235,80 @@ class ToolRegistry:
         }
         return json.dumps(tool_def, indent=2)
 
+    def is_lazy_tool(
+        self,
+        tool_name: str,
+        tools_settings: dict = None,
+        expanded_tools: set = None,
+    ) -> bool:
+        """Whether a tool should be emitted in compact (parameter-less) form.
+
+        Single source of truth shared by ``get_tools_prompt`` and the redirect
+        guard so they never drift. A tool is lazy when its ``default_lazy_load``
+        (or a per-tool ``lazy_load`` override) is set, **unless** its schema has
+        already been discovered (it is in ``expanded_tools``). Returns ``False``
+        for unknown tools.
+        """
+        tool_obj = self._tools.get(tool_name)
+        if tool_obj is None:
+            return False
+        if expanded_tools and tool_name in expanded_tools:
+            return False
+        is_lazy = tool_obj.default_lazy_load
+        if tools_settings and tool_name in tools_settings and "lazy_load" in tools_settings[tool_name]:
+            is_lazy = tools_settings[tool_name]["lazy_load"]
+        return is_lazy
+
+    @staticmethod
+    def _schema_has_parameters(schema) -> bool:
+        """True if a tool's JSON schema declares at least one property."""
+        if not isinstance(schema, dict):
+            return False
+        props = schema.get("properties")
+        return isinstance(props, dict) and len(props) > 0
+
+    def maybe_redirect_lazy_tool(
+        self,
+        tool_name: str,
+        tools_settings: dict,
+        expanded_tools: set,
+    ) -> Optional[ToolResult]:
+        """Intercept a direct call to a not-yet-discovered lazy tool.
+
+        Returns a ``ToolResult`` carrying the tool's full schema and an
+        instruction to call again, **without** executing the tool, when the call
+        would otherwise run with unknown/guessed arguments. This makes lazy
+        loading robust when the model skips ``tool_search``.
+
+        Returns ``None`` (proceed normally) when the tool is unknown, is not
+        lazy, has already been expanded, has a ``custom_prompt`` override, or
+        genuinely has no parameters.
+        """
+        tool_obj = self._tools.get(tool_name)
+        if tool_obj is None:
+            return None
+        # A custom prompt already gives the model its own definition; don't fight it.
+        if tools_settings and tool_name in tools_settings and tools_settings[tool_name].get("custom_prompt"):
+            return None
+        if not self.is_lazy_tool(tool_name, tools_settings, expanded_tools):
+            return None
+        if not self._schema_has_parameters(tool_obj.schema):
+            return None
+
+        # Mark expanded so every downstream emission treats it as full from now on.
+        expanded_tools.add(tool_name)
+
+        message = (
+            f"The tool '{tool_name}' was called before its parameter schema was "
+            f"retrieved, so the provided arguments could not be trusted. Here is "
+            f"its full definition:\n\n{self.get_tool_schema(tool_name)}\n\n"
+            f"Read the parameters above and call '{tool_name}' again, this time "
+            f"with the correct arguments exactly as specified. Do not guess."
+        )
+        result = ToolResult()
+        result.set_output(message)
+        return result
+
     def get_tools_prompt(self, enabled_tools_dict: dict[str, bool] = None, tools_settings: dict = None, expanded_tools: set = None) -> str:
         """
         Generates the system prompt instructions for using the available tools.
@@ -270,16 +344,16 @@ class ToolRegistry:
                          pass
 
                 if not tool_def:
-                    is_lazy = tool_obj.default_lazy_load
-                    if tools_settings and tool_name in tools_settings and "lazy_load" in tools_settings[tool_name]:
-                        is_lazy = tools_settings[tool_name]["lazy_load"]
-                    if expanded_tools and tool_name in expanded_tools:
-                        is_lazy = False
+                    is_lazy = self.is_lazy_tool(tool_name, tools_settings, expanded_tools)
 
                     if is_lazy:
                         tool_def = {
                             "name": tool_obj.name,
-                            "description": tool_obj.description,
+                            "description": (
+                                f"{tool_obj.description}\n\n"
+                                f"(compact tool: parameters hidden — call tool_search(\"{tool_obj.name}\") "
+                                f"to retrieve its schema before invoking this tool)"
+                            ),
                         }
                     else:
                         tool_def = {

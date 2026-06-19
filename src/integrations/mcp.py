@@ -324,7 +324,7 @@ class MCPIntegration(NewelleExtension):
         if tools:
             tool_search = Tool(
                 "tool_search",
-                "Get the full parameter schema for a tool. Call this before using any tool that is listed without parameters.",
+                "Get the full parameter schema for a tool. Call this FIRST, before invoking any tool listed without parameters (marked 'compact').",
                 lambda tool_name: self._tool_search(tool_name),
                 schema={
                     "type": "object",
