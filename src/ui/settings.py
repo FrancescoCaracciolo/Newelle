@@ -1647,8 +1647,9 @@ class Settings(Adw.PreferencesWindow):
             
             if self.mcp_server_type == "stdio":
                 command = self.mcp_command_entry.get_text().strip()
+                command = os.path.expanduser(command)
                 if not command:
-                    self.app.win.show_error_dialog(_("Error"), _("Command is required for stdio servers"))
+                    self.app.win.show_error_dialog(_("Error"), _("Command is required for stdio servers"), parent=self)
                     return
                 
                 args_text = self.mcp_args_entry.get_text().strip()
@@ -1662,10 +1663,10 @@ class Settings(Adw.PreferencesWindow):
                     try:
                         env = json.loads(env_text)
                         if not isinstance(env, dict):
-                            self.app.win.show_error_dialog(_("Error"), _("Environment variables must be a JSON object"))
+                            self.app.win.show_error_dialog(_("Error"), _("Environment variables must be a JSON object"), parent=self)
                             return
                     except json.JSONDecodeError as e:
-                        self.app.win.show_error_dialog(_("Error"), _("Invalid JSON in environment variables: ") + str(e))
+                        self.app.win.show_error_dialog(_("Error"), _("Invalid JSON in environment variables: ") + str(e), parent=self)
                         return
                 
                 self._disable_mcp_form()
@@ -1682,13 +1683,13 @@ class Settings(Adw.PreferencesWindow):
                         )
                         self.settings.set_string("mcp-servers", json.dumps(mcp_handler.mcp_servers))
                         if not added:
-                            GLib.idle_add(self.app.win.show_error_dialog, _("Error"), _("Failed to add MCP server"))
+                            GLib.idle_add(self.app.win.show_error_dialog, _("Error"), _("Failed to add MCP server"), self)
                         GLib.idle_add(self.refresh_mcp_servers_list)
                         GLib.idle_add(self.refresh_tools_list)
                     except Exception as e:
                         traceback.print_exc()
                         err_msg = self._mcp_error_message(e)
-                        GLib.idle_add(self.app.win.show_error_dialog, _("Error"), _("Failed to add MCP server: {}").format(err_msg))
+                        GLib.idle_add(self.app.win.show_error_dialog, _("Error"), _("Failed to add MCP server: {}").format(err_msg), self)
                     finally:
                         GLib.idle_add(self._enable_mcp_form)
                         GLib.idle_add(self._clear_mcp_form)
@@ -1697,7 +1698,7 @@ class Settings(Adw.PreferencesWindow):
             else:
                 url = self.mcp_url_entry.get_text().strip()
                 if not url:
-                    self.app.win.show_error_dialog(_("Error"), _("URL is required for HTTP servers"))
+                    self.app.win.show_error_dialog(_("Error"), _("URL is required for HTTP servers"), parent=self)
                     return
                 
                 bearer_token = self.mcp_token_entry.get_text().strip() or None
@@ -1712,10 +1713,10 @@ class Settings(Adw.PreferencesWindow):
                     try:
                         custom_headers = json.loads(headers_text)
                         if not isinstance(custom_headers, dict):
-                            self.app.win.show_error_dialog(_("Error"), _("Custom headers must be a JSON object"))
+                            self.app.win.show_error_dialog(_("Error"), _("Custom headers must be a JSON object"), parent=self)
                             return
                     except json.JSONDecodeError as e:
-                        self.app.win.show_error_dialog(_("Error"), _("Invalid JSON in custom headers: ") + str(e))
+                        self.app.win.show_error_dialog(_("Error"), _("Invalid JSON in custom headers: ") + str(e), parent=self)
                         return
                 
                 self._disable_mcp_form()
@@ -1728,7 +1729,7 @@ class Settings(Adw.PreferencesWindow):
                             config_dir = self.controller.config_dir
                             success, err_msg = run_oauth_flow(url, config_dir)
                             if not success:
-                                GLib.idle_add(self.app.win.show_error_dialog, _("OAuth Error"), err_msg or _("Authentication failed"))
+                                GLib.idle_add(self.app.win.show_error_dialog, _("OAuth Error"), err_msg or _("Authentication failed"), self)
                                 return
                         added = mcp_handler.add_mcp_server(
                             url=url,
@@ -1741,7 +1742,7 @@ class Settings(Adw.PreferencesWindow):
                         )
                         self.settings.set_string("mcp-servers", json.dumps(mcp_handler.mcp_servers))
                         if not added:
-                            GLib.idle_add(self.app.win.show_error_dialog, _("Error"), _("Failed to add MCP server"))
+                            GLib.idle_add(self.app.win.show_error_dialog, _("Error"), _("Failed to add MCP server"), self)
                         GLib.idle_add(self.refresh_mcp_servers_list)
                         GLib.idle_add(self.refresh_tools_list)
                     except Exception as e:
@@ -1765,7 +1766,7 @@ class Settings(Adw.PreferencesWindow):
                             )
                         else:
                             err_msg = _("Failed to add MCP server: {}").format(err_msg)
-                        GLib.idle_add(self.app.win.show_error_dialog, _("Error"), err_msg)
+                        GLib.idle_add(self.app.win.show_error_dialog, _("Error"), err_msg, self)
                     finally:
                         GLib.idle_add(self._enable_mcp_form)
                         GLib.idle_add(self._clear_mcp_form)
@@ -1948,7 +1949,7 @@ class Settings(Adw.PreferencesWindow):
                 GLib.idle_add(self.refresh_tools_list)
                 GLib.idle_add(lambda: self.add_toast(Adw.Toast(title=_("Re-authentication successful"))))
             else:
-                GLib.idle_add(self.app.win.show_error_dialog, _("OAuth Error"), err_msg or _("Re-authentication failed"))
+                GLib.idle_add(self.app.win.show_error_dialog, _("OAuth Error"), err_msg or _("Re-authentication failed"), self)
             GLib.idle_add(btn.set_sensitive, True)
 
         threading.Thread(target=reauth_thread, daemon=True).start()
