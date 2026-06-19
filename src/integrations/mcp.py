@@ -5,7 +5,7 @@ import json
 import os
 import time
 from gi.repository import GLib
-from ..utility.system import is_flatpak
+from ..utility.system import is_flatpak, can_escape_sandbox
 
 
 class _CachedTool:
@@ -302,6 +302,11 @@ class MCPIntegration(NewelleExtension):
         result = ToolResult()
         if hasattr(self, "ui_controller") and self.ui_controller is not None:
             controller = self.ui_controller.window.controller
+            # Record that this tool's schema has been discovered so subsequent
+            # turns emit its full parameters — required for native tool calling,
+            # which cannot act on the compact (parameter-less) definition.
+            if hasattr(controller, "expanded_tools"):
+                controller.expanded_tools.add(tool_name)
             result.set_output(controller.tools.get_tool_schema(tool_name))
         else:
             result.set_output(json.dumps({"error": "Controller not available"}))
@@ -319,7 +324,7 @@ class MCPIntegration(NewelleExtension):
         if tools:
             tool_search = Tool(
                 "tool_search",
-                "Get the full parameter schema for a tool. Call this before using any tool that is listed without parameters.",
+                "Get the full parameter schema for a tool. Call this FIRST, before invoking any tool listed without parameters (marked 'compact').",
                 lambda tool_name: self._tool_search(tool_name),
                 schema={
                     "type": "object",
@@ -350,6 +355,32 @@ class MCPIntegration(NewelleExtension):
         args = call["arguments"]
         result = self.sync_call_tool(tool_name, args)
         return result
+
+    def _stdio_server_params(self, command, args, env):
+        """Build StdioServerParameters for a stdio server.
+
+        Inside a Flatpak sandbox the configured command (npx, node, python, …)
+        is not available, so run it on the host via ``flatpak-spawn --host``.
+
+        The MCP SDK spawns the server with a minimal allowlist environment
+        (HOME, PATH, USER, …) that drops ``XDG_RUNTIME_DIR`` and
+        ``DBUS_SESSION_BUS_ADDRESS``; flatpak-spawn needs those to reach the
+        session helper, so the full current environment is passed through here.
+        Each user-supplied variable is also forwarded explicitly with ``--env``
+        so it reaches the host command.
+        """
+        from mcp.client.stdio import StdioServerParameters
+
+        args = args or []
+        if is_flatpak() and can_escape_sandbox():
+            spawn_args = ["--host"]
+            if env and isinstance(env, dict):
+                for key, value in env.items():
+                    spawn_args.append(f"--env={key}={value}")
+            spawn_args.append(command)
+            spawn_args.extend(args)
+            return StdioServerParameters(command="flatpak-spawn", args=spawn_args, env=dict(os.environ))
+        return StdioServerParameters(command=command, args=args, env=env)
 
     def sync_get_tools(self, url, headers=None, client_id=None, server_info=None):
         """Synchronous wrapper to get available tools (HTTP)"""
@@ -402,18 +433,11 @@ class MCPIntegration(NewelleExtension):
     def sync_get_tools_stdio(self, command, args=None, env=None):
         """Synchronous wrapper to get available tools from stdio server"""
         import asyncio
-        from mcp.client.stdio import stdio_client, StdioServerParameters
+        from mcp.client.stdio import stdio_client
         from mcp import ClientSession
-        
-        if args is None:
-            args = []
-        
+
         async def _async_get_tools():
-            server_params = StdioServerParameters(
-                command=command,
-                args=args,
-                env=env
-            )
+            server_params = self._stdio_server_params(command, args, env)
             async with stdio_client(server_params) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
@@ -425,18 +449,11 @@ class MCPIntegration(NewelleExtension):
     def sync_call_tool_stdio(self, command, args, env, tool_name, arguments):
         """Synchronous wrapper to call a tool on stdio server"""
         import asyncio
-        from mcp.client.stdio import stdio_client, StdioServerParameters
+        from mcp.client.stdio import stdio_client
         from mcp import ClientSession
-        
-        if args is None:
-            args = []
-        
+
         async def _async_call_tool():
-            server_params = StdioServerParameters(
-                command=command,
-                args=args,
-                env=env
-            )
+            server_params = self._stdio_server_params(command, args, env)
             async with stdio_client(server_params) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()

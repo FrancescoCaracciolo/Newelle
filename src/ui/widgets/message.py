@@ -699,17 +699,30 @@ class Message(Gtk.Box):
                         result = ToolResult()
                         result.set_output(f"Error: {e}")
                 else:
-                    try:
-                        result = tool.execute(
-                            msg_uuid=msg_uuid,
-                            tool_uuid=tool_uuid,
-                            chat_id=self._get_chat_tab().chat_id,
-                            **args,
-                        )
-                    except Exception as e:
-                        tool_failed = True
-                        result = ToolResult()
-                        result.set_output(f"Error: {e}")
+                    # Lazy loading guard: if a lazy tool is called before its
+                    # schema was fetched, hand back the schema instead of running
+                    # it with guessed arguments. The main GUI path rebuilds the
+                    # tools prompt each turn, so marking the tool expanded here is
+                    # enough for the next turn to expose its full parameters.
+                    redirect = self.controller.tools.maybe_redirect_lazy_tool(
+                        tool.name,
+                        self.controller.newelle_settings.tools_settings_dict,
+                        self.controller.expanded_tools,
+                    )
+                    if redirect is not None:
+                        result = redirect
+                    else:
+                        try:
+                            result = tool.execute(
+                                msg_uuid=msg_uuid,
+                                tool_uuid=tool_uuid,
+                                chat_id=self._get_chat_tab().chat_id,
+                                **args,
+                            )
+                        except Exception as e:
+                            tool_failed = True
+                            result = ToolResult()
+                            result.set_output(f"Error: {e}")
 
                 if not isinstance(result, ToolResult):
                     wrapped_result = ToolResult()

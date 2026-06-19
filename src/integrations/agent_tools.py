@@ -68,7 +68,8 @@ class AgentToolsIntegration(NewelleExtension):
                         skill_output = skill_manager.activate_skill(skill_name)
                         prompts.append(skill_output)
 
-                tools_prompt_json = sub_registry.get_tools_prompt()
+                expanded_tools = getattr(ctrl, "expanded_tools", None)
+                tools_prompt_json = sub_registry.get_tools_prompt(expanded_tools=expanded_tools)
                 if tools_prompt_json:
                     from ..constants import PROMPTS
                     tools_instruction = PROMPTS.get("tools", "").replace("{TOOLS}", tools_prompt_json)

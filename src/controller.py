@@ -209,6 +209,10 @@ class NewelleController:
         self.ui_controller : UIController | None = None
         self.installing_handlers = {}
         self.tools = ToolRegistry()
+        # Tool names whose full schema has been fetched via tool_search. They are
+        # emitted with full parameters afterwards so lazy-loaded tools can also be
+        # invoked through native tool calling (which needs the schema up front).
+        self.expanded_tools: set[str] = set()
         self.msgid = 0
         self.chat_documents_index = {}
         self.is_call_request = False
@@ -1745,31 +1749,61 @@ class NewelleController:
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
                     tool_uuid = str(uuid_lib.uuid4())[:8]
-                    
+
+                    # Lazy loading: a tool_search call means the model just fetched
+                    # a tool's schema. Expand it in the system prompt so that, on the
+                    # next turn, the tool carries its real parameters and can be
+                    # invoked through native tool calling too.
+                    if (
+                        tool_name == "tool_search"
+                        and isinstance(tool_args, dict)
+                        and tool_args.get("tool_name")
+                    ):
+                        system_prompt = active_tool_registry.expand_tool_in_prompts(
+                            system_prompt, tool_args["tool_name"]
+                        )
+
                     try:
                         tool = active_tool_registry.get_tool(tool_name)
                         if tool is None:
                             raise ValueError(f"Tool '{tool_name}' not found")
 
-                        tool_kwargs = {"msg_uuid": msg_uuid, "tool_uuid": tool_uuid, "chat_id": chat_id, **tool_args}
-                        should_run_on_main_thread = (
-                            force_tools_on_main_thread or tool.run_on_main_thread
+                        # Lazy loading guard: if a lazy tool is called before its
+                        # schema was fetched, hand back the schema instead of
+                        # running it with guessed arguments, and mark it expanded.
+                        redirect = active_tool_registry.maybe_redirect_lazy_tool(
+                            tool_name, self.newelle_settings.tools_settings_dict, self.expanded_tools
                         )
-
-                        if should_run_on_main_thread:
-                            result = self.execute_tool_on_main_thread(
-                                tool_name,
-                                tool_kwargs,
-                                tool_registry=active_tool_registry,
+                        if redirect is not None:
+                            # Native tool calling needs the full schema next turn.
+                            system_prompt = active_tool_registry.expand_tool_in_prompts(
+                                system_prompt, tool_name
                             )
-                        else:
-                            result = tool.execute(**tool_kwargs)
-                        if isinstance(result, ToolResult):
                             if on_tool_result_callback:
-                                on_tool_result_callback(tool_name, result)
-                            tool_result_output = result.get_output()
+                                on_tool_result_callback(tool_name, redirect)
+                            tool_result_output = redirect.get_output()
                             if tool_result_output is not None:
                                 cont = True
+                        else:
+                            tool_kwargs = {"msg_uuid": msg_uuid, "tool_uuid": tool_uuid, "chat_id": chat_id, **tool_args}
+                            should_run_on_main_thread = (
+                                force_tools_on_main_thread or tool.run_on_main_thread
+                            )
+
+                            if should_run_on_main_thread:
+                                result = self.execute_tool_on_main_thread(
+                                    tool_name,
+                                    tool_kwargs,
+                                    tool_registry=active_tool_registry,
+                                )
+                            else:
+                                result = tool.execute(**tool_kwargs)
+                            if isinstance(result, ToolResult):
+                                if on_tool_result_callback:
+                                    on_tool_result_callback(tool_name, result)
+                                tool_result_output = result.get_output()
+                                if tool_result_output is not None:
+                                    cont = True
                     except Exception as e:
                         tool_result_output = f"Error: {str(e)}"
                         if on_tool_result_callback:

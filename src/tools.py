@@ -235,20 +235,98 @@ class ToolRegistry:
         }
         return json.dumps(tool_def, indent=2)
 
-    def get_tools_prompt(self, enabled_tools_dict: dict[str, bool] = None, tools_settings: dict = None) -> str:
+    def is_lazy_tool(
+        self,
+        tool_name: str,
+        tools_settings: dict = None,
+        expanded_tools: set = None,
+    ) -> bool:
+        """Whether a tool should be emitted in compact (parameter-less) form.
+
+        Single source of truth shared by ``get_tools_prompt`` and the redirect
+        guard so they never drift. A tool is lazy when its ``default_lazy_load``
+        (or a per-tool ``lazy_load`` override) is set, **unless** its schema has
+        already been discovered (it is in ``expanded_tools``). Returns ``False``
+        for unknown tools.
+        """
+        tool_obj = self._tools.get(tool_name)
+        if tool_obj is None:
+            return False
+        if expanded_tools and tool_name in expanded_tools:
+            return False
+        is_lazy = tool_obj.default_lazy_load
+        if tools_settings and tool_name in tools_settings and "lazy_load" in tools_settings[tool_name]:
+            is_lazy = tools_settings[tool_name]["lazy_load"]
+        return is_lazy
+
+    @staticmethod
+    def _schema_has_parameters(schema) -> bool:
+        """True if a tool's JSON schema declares at least one property."""
+        if not isinstance(schema, dict):
+            return False
+        props = schema.get("properties")
+        return isinstance(props, dict) and len(props) > 0
+
+    def maybe_redirect_lazy_tool(
+        self,
+        tool_name: str,
+        tools_settings: dict,
+        expanded_tools: set,
+    ) -> Optional[ToolResult]:
+        """Intercept a direct call to a not-yet-discovered lazy tool.
+
+        Returns a ``ToolResult`` carrying the tool's full schema and an
+        instruction to call again, **without** executing the tool, when the call
+        would otherwise run with unknown/guessed arguments. This makes lazy
+        loading robust when the model skips ``tool_search``.
+
+        Returns ``None`` (proceed normally) when the tool is unknown, is not
+        lazy, has already been expanded, has a ``custom_prompt`` override, or
+        genuinely has no parameters.
+        """
+        tool_obj = self._tools.get(tool_name)
+        if tool_obj is None:
+            return None
+        # A custom prompt already gives the model its own definition; don't fight it.
+        if tools_settings and tool_name in tools_settings and tools_settings[tool_name].get("custom_prompt"):
+            return None
+        if not self.is_lazy_tool(tool_name, tools_settings, expanded_tools):
+            return None
+        if not self._schema_has_parameters(tool_obj.schema):
+            return None
+
+        # Mark expanded so every downstream emission treats it as full from now on.
+        expanded_tools.add(tool_name)
+
+        message = (
+            f"The tool '{tool_name}' was called before its parameter schema was "
+            f"retrieved, so the provided arguments could not be trusted. Here is "
+            f"its full definition:\n\n{self.get_tool_schema(tool_name)}\n\n"
+            f"Read the parameters above and call '{tool_name}' again, this time "
+            f"with the correct arguments exactly as specified. Do not guess."
+        )
+        result = ToolResult()
+        result.set_output(message)
+        return result
+
+    def get_tools_prompt(self, enabled_tools_dict: dict[str, bool] = None, tools_settings: dict = None, expanded_tools: set = None) -> str:
         """
         Generates the system prompt instructions for using the available tools.
-        
+
         Tools with lazy loading enabled (per-tool setting or default_lazy_load)
         are emitted in compact form (name + description only, no parameters).
         The LLM should call ``tool_search`` to retrieve the full schema before
         invoking a compact tool.
 
         Args:
-            enabled_tools_dict: Dictionary mapping tool names to boolean enabled state. 
+            enabled_tools_dict: Dictionary mapping tool names to boolean enabled state.
                                 If None, all registered tools are considered enabled.
             tools_settings: Dictionary containing tool settings (including custom prompts
                             and per-tool lazy_load overrides).
+            expanded_tools: Optional set of tool names whose schema has already been
+                                fetched via ``tool_search``. These are always emitted with
+                                their full parameters — needed so that, once discovered,
+                                a tool can actually be invoked through native tool calling.
         """
         
         available_tools = []
@@ -266,14 +344,16 @@ class ToolRegistry:
                          pass
 
                 if not tool_def:
-                    is_lazy = tool_obj.default_lazy_load
-                    if tools_settings and tool_name in tools_settings and "lazy_load" in tools_settings[tool_name]:
-                        is_lazy = tools_settings[tool_name]["lazy_load"]
+                    is_lazy = self.is_lazy_tool(tool_name, tools_settings, expanded_tools)
 
                     if is_lazy:
                         tool_def = {
                             "name": tool_obj.name,
-                            "description": tool_obj.description,
+                            "description": (
+                                f"{tool_obj.description}\n\n"
+                                f"(compact tool: parameters hidden — call tool_search(\"{tool_obj.name}\") "
+                                f"to retrieve its schema before invoking this tool)"
+                            ),
                         }
                     else:
                         tool_def = {
@@ -288,6 +368,51 @@ class ToolRegistry:
 
         tools_json = json.dumps(available_tools, indent=2)
         return f"<tools>\n{tools_json}\n</tools>"
+
+    def expand_tool_in_prompts(self, prompts: list[str], tool_name: str) -> list[str]:
+        """Expand a compact (lazy) tool into its full schema inside a ``<tools>`` block.
+
+        Used after the LLM calls ``tool_search`` so that, on the next turn, the
+        requested tool carries its real parameters (needed for native tool calling,
+        where the compact form would otherwise reach the API parameter-less).
+        Prompts without a ``<tools>`` block, or tools that already expose parameters,
+        are left untouched.
+
+        Args:
+            prompts: The system prompt strings, one of which contains a ``<tools>`` block.
+            tool_name: The tool whose compact definition should be expanded.
+
+        Returns:
+            A new list of prompts with the tool expanded where applicable.
+        """
+        tool_obj = self._tools.get(tool_name)
+        if tool_obj is None:
+            return prompts
+        full_def = {
+            "name": tool_obj.name,
+            "description": tool_obj.description,
+            "parameters": tool_obj.schema,
+        }
+        new_prompts = []
+        for prompt in prompts:
+            if "<tools>" in prompt and "</tools>" in prompt:
+                start = prompt.find("<tools>")
+                end = prompt.find("</tools>") + len("</tools>")
+                block_str = prompt[start + len("<tools>"):prompt.find("</tools>")].strip()
+                try:
+                    tools = json.loads(block_str)
+                    changed = False
+                    for i, tool_def in enumerate(tools):
+                        if tool_def.get("name") == tool_name and "parameters" not in tool_def:
+                            tools[i] = full_def
+                            changed = True
+                    if changed:
+                        new_block = f"<tools>\n{json.dumps(tools, indent=2)}\n</tools>"
+                        prompt = prompt[:start] + new_block + prompt[end:]
+                except json.JSONDecodeError:
+                    pass
+            new_prompts.append(prompt)
+        return new_prompts
 
 
 def tool(name: str, description: str, run_on_main_thread: bool = False, title: str = None, prompt_editable: bool = True, restore_func: Callable = None, default_on: bool = True, tools_group: str = None, icon_name: str = None):
