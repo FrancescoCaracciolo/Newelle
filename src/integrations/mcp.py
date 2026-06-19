@@ -302,6 +302,11 @@ class MCPIntegration(NewelleExtension):
         result = ToolResult()
         if hasattr(self, "ui_controller") and self.ui_controller is not None:
             controller = self.ui_controller.window.controller
+            # Record that this tool's schema has been discovered so subsequent
+            # turns emit its full parameters — required for native tool calling,
+            # which cannot act on the compact (parameter-less) definition.
+            if hasattr(controller, "expanded_tools"):
+                controller.expanded_tools.add(tool_name)
             result.set_output(controller.tools.get_tool_schema(tool_name))
         else:
             result.set_output(json.dumps({"error": "Controller not available"}))

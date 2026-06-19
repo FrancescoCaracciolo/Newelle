@@ -235,20 +235,24 @@ class ToolRegistry:
         }
         return json.dumps(tool_def, indent=2)
 
-    def get_tools_prompt(self, enabled_tools_dict: dict[str, bool] = None, tools_settings: dict = None) -> str:
+    def get_tools_prompt(self, enabled_tools_dict: dict[str, bool] = None, tools_settings: dict = None, expanded_tools: set = None) -> str:
         """
         Generates the system prompt instructions for using the available tools.
-        
+
         Tools with lazy loading enabled (per-tool setting or default_lazy_load)
         are emitted in compact form (name + description only, no parameters).
         The LLM should call ``tool_search`` to retrieve the full schema before
         invoking a compact tool.
 
         Args:
-            enabled_tools_dict: Dictionary mapping tool names to boolean enabled state. 
+            enabled_tools_dict: Dictionary mapping tool names to boolean enabled state.
                                 If None, all registered tools are considered enabled.
             tools_settings: Dictionary containing tool settings (including custom prompts
                             and per-tool lazy_load overrides).
+            expanded_tools: Optional set of tool names whose schema has already been
+                                fetched via ``tool_search``. These are always emitted with
+                                their full parameters — needed so that, once discovered,
+                                a tool can actually be invoked through native tool calling.
         """
         
         available_tools = []
@@ -269,6 +273,8 @@ class ToolRegistry:
                     is_lazy = tool_obj.default_lazy_load
                     if tools_settings and tool_name in tools_settings and "lazy_load" in tools_settings[tool_name]:
                         is_lazy = tools_settings[tool_name]["lazy_load"]
+                    if expanded_tools and tool_name in expanded_tools:
+                        is_lazy = False
 
                     if is_lazy:
                         tool_def = {
@@ -288,6 +294,51 @@ class ToolRegistry:
 
         tools_json = json.dumps(available_tools, indent=2)
         return f"<tools>\n{tools_json}\n</tools>"
+
+    def expand_tool_in_prompts(self, prompts: list[str], tool_name: str) -> list[str]:
+        """Expand a compact (lazy) tool into its full schema inside a ``<tools>`` block.
+
+        Used after the LLM calls ``tool_search`` so that, on the next turn, the
+        requested tool carries its real parameters (needed for native tool calling,
+        where the compact form would otherwise reach the API parameter-less).
+        Prompts without a ``<tools>`` block, or tools that already expose parameters,
+        are left untouched.
+
+        Args:
+            prompts: The system prompt strings, one of which contains a ``<tools>`` block.
+            tool_name: The tool whose compact definition should be expanded.
+
+        Returns:
+            A new list of prompts with the tool expanded where applicable.
+        """
+        tool_obj = self._tools.get(tool_name)
+        if tool_obj is None:
+            return prompts
+        full_def = {
+            "name": tool_obj.name,
+            "description": tool_obj.description,
+            "parameters": tool_obj.schema,
+        }
+        new_prompts = []
+        for prompt in prompts:
+            if "<tools>" in prompt and "</tools>" in prompt:
+                start = prompt.find("<tools>")
+                end = prompt.find("</tools>") + len("</tools>")
+                block_str = prompt[start + len("<tools>"):prompt.find("</tools>")].strip()
+                try:
+                    tools = json.loads(block_str)
+                    changed = False
+                    for i, tool_def in enumerate(tools):
+                        if tool_def.get("name") == tool_name and "parameters" not in tool_def:
+                            tools[i] = full_def
+                            changed = True
+                    if changed:
+                        new_block = f"<tools>\n{json.dumps(tools, indent=2)}\n</tools>"
+                        prompt = prompt[:start] + new_block + prompt[end:]
+                except json.JSONDecodeError:
+                    pass
+            new_prompts.append(prompt)
+        return new_prompts
 
 
 def tool(name: str, description: str, run_on_main_thread: bool = False, title: str = None, prompt_editable: bool = True, restore_func: Callable = None, default_on: bool = True, tools_group: str = None, icon_name: str = None):

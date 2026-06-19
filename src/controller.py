@@ -209,6 +209,7 @@ class NewelleController:
         self.ui_controller : UIController | None = None
         self.installing_handlers = {}
         self.tools = ToolRegistry()
+        self.expanded_tools: set[str] = set()
         self.msgid = 0
         self.chat_documents_index = {}
         self.is_call_request = False
@@ -1746,6 +1747,15 @@ class NewelleController:
                     tool_args = tool_call["args"]
                     tool_uuid = str(uuid_lib.uuid4())[:8]
                     
+                    if (
+                        tool_name == "tool_search"
+                        and isinstance(tool_args, dict)
+                        and tool_args.get("tool_name")
+                    ):
+                        system_prompt = active_tool_registry.expand_tool_in_prompts(
+                            system_prompt, tool_args["tool_name"]
+                        )
+
                     try:
                         tool = active_tool_registry.get_tool(tool_name)
                         if tool is None:
