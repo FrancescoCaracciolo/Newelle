@@ -6,6 +6,7 @@ from .handlers.embeddings import WordLlamaHandler, OpenAIEmbeddingHandler, Gemin
 from .handlers.memory import MemoripyHandler, UserSummaryHandler, SummaryMemoripyHanlder, LlamaIndexMemoryHandler, AgenticMemoryHandler
 from .handlers.rag import LlamaIndexHanlder
 from .handlers.websearch import SearXNGHandler, DDGSeachHandler, TavilyHandler, TinyFishHandler
+from .handlers.image_generator import ImageGeneratorHandler, PollinationsHandler, StableDiffusionCPPHandler, OpenAIImageHandler, OpenRouterImageHandler
 from .handlers.interfaces.interface import Interface
 from .handlers.interfaces.api_handler import APIInterface
 from .handlers.interfaces.gui_api_handler import GUIAPIInterface
@@ -24,6 +25,34 @@ DIR_NAME = "Newelle"
 SCHEMA_ID = 'io.github.qwersyk.Newelle'
 
 AVAILABLE_INTEGRATIONS = [WebsiteReader, WebsearchIntegration, MermaidIntegration, MCPIntegration, SkillsIntegration, DefaultToolsIntegration, AgentToolsIntegration, FileEditingIntegration, TodoListIntegration]
+
+AVAILABLE_IMAGE_GENERATORS = {
+    "stablediffusioncpp": {
+        "key": "stablediffusioncpp",
+        "title": _("Stable Diffusion (Local)"),
+        "description": _("Run Stable Diffusion locally using stable-diffusion.cpp, with hardware acceleration support (CUDA, Vulkan, ROCm)."),
+        "class": StableDiffusionCPPHandler,
+    },
+    "pollinations": {
+        "key": "pollinations",
+        "title": _("Pollinations AI"),
+        "description": _("Generate images using Pollinations AI. Multiple models available, supports advanced parameters."),
+        "class": PollinationsHandler,
+    },
+    "openai-image": {
+        "key": "openai-image",
+        "title": _("OpenAI Compatible"),
+        "description": _("Generate images using OpenAI-compatible APIs (OpenAI DALL-E, and compatible services)."),
+        "class": OpenAIImageHandler,
+    },
+    "openrouter-image": {
+        "key": "openrouter-image",
+        "title": _("OpenRouter"),
+        "description": _("Generate images using OpenRouter's Chat Completions endpoint with the modalities parameter. Supports image-capable models like Gemini, Flux, Recraft, Sourceful and more."),
+        "class": OpenRouterImageHandler,
+        "website": "https://openrouter.ai/models?output_modalities=image",
+    },
+}
 
 AVAILABLE_LLMS = {
     "newelle": {
@@ -674,10 +703,11 @@ DEFAULT_AVAILABLE_MEMORIES = AVAILABLE_MEMORIES.copy()
 DEFAULT_AVAILABLE_RAG = AVAILABLE_RAGS.copy()
 DEFAULT_AVAILABLE_WEBSEARCH = AVAILABLE_WEBSEARCH.copy()
 DEFAULT_AVAILABLE_INTERFACES = AVAILABLE_INTERFACES.copy()
+DEFAULT_AVAILABLE_IMAGE_GENERATORS = AVAILABLE_IMAGE_GENERATORS.copy()
 DEFAULT_AVAILABLE_PROMPTS = AVAILABLE_PROMPTS.copy()
 
 def restore_handlers():
-    global AVAILABLE_LLMS, AVAILABLE_TTS, AVAILABLE_STT, AVAILABLE_EMBEDDINGS, AVAILABLE_MEMORIES, AVAILABLE_RAGS, AVAILABLE_WEBSEARCH, AVAILABLE_INTERFACES, AVAILABLE_PROMPTS
+    global AVAILABLE_LLMS, AVAILABLE_TTS, AVAILABLE_STT, AVAILABLE_EMBEDDINGS, AVAILABLE_MEMORIES, AVAILABLE_RAGS, AVAILABLE_WEBSEARCH, AVAILABLE_INTERFACES, AVAILABLE_PROMPTS, AVAILABLE_IMAGE_GENERATORS
     AVAILABLE_PROMPTS.clear()
     AVAILABLE_LLMS.clear()
     AVAILABLE_TTS.clear()
@@ -687,6 +717,7 @@ def restore_handlers():
     AVAILABLE_RAGS.clear()
     AVAILABLE_WEBSEARCH.clear()
     AVAILABLE_INTERFACES.clear()
+    AVAILABLE_IMAGE_GENERATORS.clear()
     AVAILABLE_PROMPTS += deepcopy(DEFAULT_AVAILABLE_PROMPTS)
     AVAILABLE_LLMS.update(deepcopy(DEFAULT_AVAILABLE_LLM))
     AVAILABLE_TTS.update(deepcopy(DEFAULT_AVAILABLE_TTS))
@@ -696,6 +727,7 @@ def restore_handlers():
     AVAILABLE_RAGS.update(deepcopy(DEFAULT_AVAILABLE_RAG))
     AVAILABLE_WEBSEARCH.update(deepcopy(DEFAULT_AVAILABLE_WEBSEARCH))
     AVAILABLE_INTERFACES.update(deepcopy(DEFAULT_AVAILABLE_INTERFACES))
+    AVAILABLE_IMAGE_GENERATORS.update(deepcopy(DEFAULT_AVAILABLE_IMAGE_GENERATORS))
 
 SETTINGS_GROUPS = {
         "LLM": {
@@ -727,6 +759,11 @@ SETTINGS_GROUPS = {
             "title": _("Websearch"),
             "settings": ["websearch-on", "websearch-settings", "websearch-model"],
             "description": _("Websearch settings"),
+        },
+        "image_generator": {
+            "title": _("Image Generator"),
+            "settings": ["image-generator", "image-generator-settings"],
+            "description": _("Image generation settings"),
         },
         "rag": {
             "title": _("RAG"),

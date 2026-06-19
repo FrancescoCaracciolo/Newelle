@@ -32,19 +32,22 @@ class ExtraSettingsBuilder:
         settings: list | None = None,
     ):
         if nested_settings is None:
-            row_key = (handler.key, self.convert_constants(constants), handler.is_secondary())
-            if row_key not in self.settingsrows:
-                self.settingsrows[row_key] = {}
-            self.settingsrows[row_key]["extra_settings"] = []
             settings_to_render = settings if settings is not None else handler.get_extra_settings()
         else:
             settings_to_render = nested_settings
 
+        row_key = (handler.key, self.convert_constants(constants), handler.is_secondary())
+        if row_key not in self.settingsrows:
+            self.settingsrows[row_key] = {"extra_settings": []}
+        if "extra_settings" not in self.settingsrows[row_key]:
+            self.settingsrows[row_key]["extra_settings"] = []
+
+        _add = row.add_row if isinstance(row, Adw.ExpanderRow) else row.add
         for setting in settings_to_render:
             setting_row = self.create_extra_setting(setting, handler, constants)
             if setting_row is None:
                 continue
-            row.add_row(setting_row)
+            _add(setting_row)
             self.settingsrows[(handler.key, self.convert_constants(constants), handler.is_secondary())][
                 "extra_settings"
             ].append(setting_row)
@@ -227,6 +230,7 @@ class ExtraSettingsBuilder:
             setting_list = row_state.get("extra_settings", [])
             for setting_row in setting_list:
                 row.remove(setting_row)
+            setting_list.clear()
             self.add_extra_settings(constants, handler, row)
 
     def setting_change_entry(self, entry, constants, handler: Handler):
