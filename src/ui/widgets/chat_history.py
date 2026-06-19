@@ -488,7 +488,7 @@ class ChatHistory(Gtk.Box):
     def _is_continuation(self, user_type, id_message, profile_name=None):
         """True when the previous real chat entry is the same sender, so consecutive
         messages can be grouped (avatar/name hidden)."""
-        if id_message is None or id_message <= 0 or id_message >= len(self.chat):
+        if id_message is None or id_message <= 0 or id_message > len(self.chat):
             return False
 
         def side(u):
@@ -510,9 +510,8 @@ class ChatHistory(Gtk.Box):
         prev = self.chat[j]
         if side(prev.get("User")) != cur_side:
             return False
-        # Only break the group when both have explicitly different profiles
         if cur_side == "assistant":
-            cur_p = self.chat[id_message].get("Profile")
+            cur_p = profile_name
             prev_p = prev.get("Profile")
             if cur_p and prev_p and cur_p != prev_p:
                 return False
