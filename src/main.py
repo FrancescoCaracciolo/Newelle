@@ -53,26 +53,51 @@ class MyApp(Adw.Application):
             font-weight:800;
             -gtk-icon-size:120px;
         }
+        /* Chat message bubbles */
+        .bubble{
+            padding: 10px 14px;
+        }
+        /* User: right side, accent tint (no avatar -> color identifies sender) */
         .user{
-            background-color: rgba(61, 152, 255,0.03);
-        }
-        .assistant{
-            background-color: rgba(184, 134, 17,0.02);
-        }
-        .done{
-            background-color: rgba(33, 155, 98,0.02);
-        }
-        .failed{
-            background-color: rgba(254, 31, 41,0.02);
+            background-color: alpha(@accent_bg_color, 0.16);
+            border-radius: 16px 16px 4px 16px;
         }
         .file{
-            background-color: rgba(222, 221, 218,0.03);
+            background-color: alpha(@accent_bg_color, 0.12);
+            border-radius: 16px 16px 4px 16px;
         }
         .folder{
-            background-color: rgba(189, 233, 255,0.03);
+            background-color: alpha(@accent_bg_color, 0.12);
+            border-radius: 16px 16px 4px 16px;
         }
+        /* Assistant: left side, soft neutral */
+        .assistant{
+            background-color: alpha(@window_fg_color, 0.07);
+            border-radius: 16px 16px 16px 4px;
+        }
+        .done{
+            background-color: alpha(@success_bg_color, 0.16);
+            border-radius: 16px 16px 16px 4px;
+        }
+        .failed{
+            background-color: alpha(@error_bg_color, 0.16);
+            border-radius: 16px 16px 16px 4px;
+        }
+        /* Centered system messages: symmetric radius */
         .message-warning{
-            background-color: rgba(184, 134, 17,0.02);
+            background-color: alpha(@warning_bg_color, 0.16);
+            border-radius: 16px;
+        }
+        /* Assistant sender name (shown above the bubble) */
+        .bubble-sender{
+            font-weight: 700;
+            color: @accent_color;
+        }
+        /* Floating message action toolbar (appears on hover) */
+        .message-actions{
+            background-color: alpha(@window_bg_color, 0.9);
+            border-radius: 999px;
+            padding: 2px 4px;
         }
         .transparent{
             background-color: rgba(0,0,0,0);

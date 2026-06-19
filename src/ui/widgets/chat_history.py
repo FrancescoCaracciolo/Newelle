@@ -58,7 +58,7 @@ class ChatHistory(Gtk.Box):
         
         self.chat_scroll_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.chat_list_block = Gtk.ListBox(
-            css_classes=["separators", "background", "view"]
+            css_classes=["background", "view"]
         )
         self.chat_list_block.set_selection_mode(Gtk.SelectionMode.NONE)
         self.chat_scroll_box.append(self.chat_list_block)
@@ -468,6 +468,141 @@ class ChatHistory(Gtk.Box):
         profile = self.chat[id_message].get("Profile", self.controller.newelle_settings.current_profile)
         self.add_message("Assistant", widget, id_message=id_message, editable=True, profile_name=profile)
 
+    def _make_avatar(self, profile_name=None, size=36):
+        """Build the assistant's profile avatar (profile picture, initials fallback)."""
+        name = profile_name or self.controller.newelle_settings.current_profile
+        profile_settings = self.controller.newelle_settings.profile_settings or {}
+        picture = profile_settings.get(name, {}).get("picture") if isinstance(profile_settings, dict) else None
+        if picture and isinstance(picture, str) and os.path.exists(picture):
+            try:
+                return Adw.Avatar(
+                    custom_image=Gdk.Texture.new_from_filename(picture),
+                    text=name,
+                    show_initials=True,
+                    size=size,
+                )
+            except Exception:
+                pass
+        return Adw.Avatar(text=name, show_initials=True, size=size)
+
+    def _is_continuation(self, user_type, id_message, profile_name=None):
+        """True when the previous real chat entry is the same sender, so consecutive
+        messages can be grouped (avatar/name hidden)."""
+        if id_message is None or id_message <= 0 or id_message > len(self.chat):
+            return False
+
+        def side(u):
+            if u in ("Assistant", "Command"):
+                return "assistant"
+            if u in ("User", "File", "Folder"):
+                return "user"
+            return None
+
+        cur_side = side(user_type)
+        if cur_side is None:
+            return False
+        # Walk back past Console/tool-output entries to the previous real sender
+        j = id_message - 1
+        while j >= 0 and self.chat[j].get("User") == "Console":
+            j -= 1
+        if j < 0:
+            return False
+        prev = self.chat[j]
+        if side(prev.get("User")) != cur_side:
+            return False
+        # Only break the group when both have explicitly different profiles
+        if cur_side == "assistant":
+            cur_p = self.chat[id_message].get("Profile")
+            prev_p = prev.get("Profile")
+            if cur_p and prev_p and cur_p != prev_p:
+                return False
+        return True
+
+    def _wire_row_hover(self, row, toolbar):
+        """Reveal the action toolbar on hover; keep it visible while editing."""
+        ev = Gtk.EventControllerMotion.new()
+
+        def _on_enter(_x, _y, _d):
+            toolbar.set_visible(True)
+
+        def _on_leave(_d):
+            if toolbar.get_visible_child_name() != "apply":
+                toolbar.set_visible(False)
+
+        ev.connect("enter", _on_enter)
+        ev.connect("leave", _on_leave)
+        row.add_controller(ev)
+
+    def _arrange_message(self, user_type, bubble, profile_name=None):
+        """Lay a bubble out as a chat row."""
+        toolbar = getattr(bubble, "action_toolbar", None)
+        continuation = getattr(bubble, "is_continuation", False)
+
+        # Assistant side: avatar + name + plain bubble (hidden on continuation)
+        if user_type in ("Assistant", "Command"):
+            inner = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                spacing=10,
+                margin_top=2 if continuation else 8,
+                margin_bottom=8,
+                margin_start=8,
+                margin_end=8,
+                halign=Gtk.Align.FILL,
+            )
+            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True, halign=Gtk.Align.FILL)
+            if continuation:
+                # Reserve the avatar column so the text aligns under the previous msg
+                spacer = Gtk.Box()
+                spacer.set_size_request(36, 1)
+                inner.append(spacer)
+                col.append(bubble)
+            else:
+                avatar = self._make_avatar(profile_name)
+                avatar.set_valign(Gtk.Align.START)
+                name = profile_name or self.controller.newelle_settings.current_profile
+                col.append(Gtk.Label(
+                    label=name, halign=Gtk.Align.START, xalign=0, css_classes=["bubble-sender"],
+                ))
+                col.append(bubble)
+                inner.append(avatar)
+            inner.append(col)
+            # Overlay so the action toolbar floats without affecting layout
+            row = Gtk.Overlay()
+            row.set_child(inner)
+            if toolbar is not None:
+                toolbar.set_halign(Gtk.Align.END)
+                toolbar.set_valign(Gtk.Align.START)
+                toolbar.set_margin_top(6)
+                toolbar.set_margin_end(8)
+                row.add_overlay(toolbar)
+                self._wire_row_hover(row, toolbar)
+            return row
+
+        # User side: right-aligned bubble; action toolbar floats to its left
+        if user_type in ("User", "File", "Folder"):
+            row = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                margin_top=8,
+                margin_bottom=8,
+                margin_start=8,
+                margin_end=8,
+                halign=Gtk.Align.FILL,
+            )
+            row.append(Gtk.Box(hexpand=True))  # filler pushes content to the right
+            bubble.set_halign(Gtk.Align.END)
+            if toolbar is not None:
+                toolbar.set_valign(Gtk.Align.START)
+                row.append(toolbar)  # immediately left of the bubble
+                self._wire_row_hover(row, toolbar)
+            row.append(bubble)
+            return row
+
+        # Status (Done/Error): left-aligned bubble, no avatar
+        bubble.set_halign(Gtk.Align.START)
+        bubble.set_margin_start(8)
+        bubble.set_margin_end(8)
+        return bubble
+
     def add_message(self, user, message=None, id_message=0, editable=False, profile_name=None):
         """Add a message to the chat and return the box
 
@@ -480,14 +615,16 @@ class ChatHistory(Gtk.Box):
            message box
         """
         box = Gtk.Box(
-            css_classes=["card"],
-            margin_top=10,
-            margin_start=10,
-            margin_bottom=10,
-            margin_end=10,
+            css_classes=["bubble"],
+            margin_top=6,
+            margin_start=0,
+            margin_bottom=6,
+            margin_end=0,
             halign=Gtk.Align.FILL,
         )
         self.messages_box.append(box)
+        # Group consecutive messages from the same sender (hide avatar/name)
+        box.is_continuation = self._is_continuation(user, id_message, profile_name)
 
         # Update lazy_loaded_end when a message is displayed beyond the current range
         if self.lazy_load_enabled:
@@ -504,112 +641,31 @@ class ChatHistory(Gtk.Box):
 
         # Create edit controls
         if editable:
-            apply_edit_stack, branch_button = self.build_edit_box(box, str(id_message), user == "Assistant")
+            apply_edit_stack = self.build_edit_box(box, str(id_message), user == "Assistant")
             evk = Gtk.GestureClick.new()
             evk.connect("pressed", self.edit_message, box, apply_edit_stack)
             evk.set_name(str(id_message))
             evk.set_button(3)
             box.add_controller(evk)
-            ev = Gtk.EventControllerMotion.new()
 
-            stack = Gtk.Stack()
-            ev.connect("enter", lambda x, y, data: (stack.set_visible_child_name("edit"), branch_button.set_visible(True)))
-            ev.connect("leave", lambda data: (stack.set_visible_child_name("label"), branch_button.set_visible(False)))
-            box.add_controller(ev)
-
-            # Add branch button to overlay (bottom right positioning)
-            branch_button.set_visible(False)
-            branch_button.set_halign(Gtk.Align.END)
-            branch_button.set_valign(Gtk.Align.END)
-            branch_button.set_margin_end(10)
-            branch_button.set_margin_bottom(10)
-            overlay.add_overlay(branch_button)
+            apply_edit_stack.set_visible(False)
+            apply_edit_stack.add_css_class("message-actions")
+            # Placed in the row (and hover-wired) by _arrange_message.
+            box.action_toolbar = apply_edit_stack
 
         if user == "User":
-            label = Gtk.Label(
-                label=self.controller.newelle_settings.username + ": ",
-                margin_top=10,
-                margin_start=10,
-                margin_bottom=10,
-                margin_end=0,
-                css_classes=["accent", "heading"],
-            )
-            if editable:
-                stack.add_named(label, "label")
-                stack.add_named(apply_edit_stack, "edit")
-                stack.set_visible_child_name("label")
-                content_box.append(stack)
-            else:
-                content_box.append(label)
-            box.set_css_classes(["card", "user"])
+            box.set_css_classes(["bubble", "user"])
         if user == "Assistant" or user=="Command":
-            display_name = profile_name or self.controller.newelle_settings.current_profile
-            label = Gtk.Label(
-                label=display_name + ": ",
-                margin_top=10,
-                margin_start=10,
-                margin_bottom=10,
-                margin_end=0,
-                css_classes=["warning", "heading"],
-                wrap=True,
-                ellipsize=Pango.EllipsizeMode.END,
-            )
-            if editable:
-                stack.add_named(label, "label")
-                stack.add_named(apply_edit_stack, "edit")
-                stack.set_visible_child_name("label")
-                content_box.append(stack)
-            else:
-                content_box.append(label)
-            box.set_css_classes(["card", "assistant"])
+            # Assistant messages are plain text (no bubble)
+            box.set_css_classes([])
         if user == "Done":
-            content_box.append(
-                Gtk.Label(
-                    label="Assistant: ",
-                    margin_top=10,
-                    margin_start=10,
-                    margin_bottom=10,
-                    margin_end=0,
-                    css_classes=["success", "heading"],
-                )
-            )
-            box.set_css_classes(["card", "done"])
+            box.set_css_classes(["bubble", "done"])
         if user == "Error":
-            content_box.append(
-                Gtk.Label(
-                    label="Error: ",
-                    margin_top=10,
-                    margin_start=10,
-                    margin_bottom=10,
-                    margin_end=0,
-                    css_classes=["error", "heading"],
-                )
-            )
-            box.set_css_classes(["card", "failed"])
+            box.set_css_classes(["bubble", "failed"])
         if user == "File":
-            content_box.append(
-                Gtk.Label(
-                    label=self.controller.newelle_settings.username + ": ",
-                    margin_top=10,
-                    margin_start=10,
-                    margin_bottom=10,
-                    margin_end=0,
-                    css_classes=["accent", "heading"],
-                )
-            )
-            box.set_css_classes(["card", "file"])
+            box.set_css_classes(["bubble", "file"])
         if user == "Folder":
-            content_box.append(
-                Gtk.Label(
-                    label=self.controller.newelle_settings.username + ": ",
-                    margin_top=10,
-                    margin_start=10,
-                    margin_bottom=10,
-                    margin_end=0,
-                    css_classes=["accent", "heading"],
-                )
-            )
-            box.set_css_classes(["card", "folder"])
+            box.set_css_classes(["bubble", "folder"])
         if user == "WarningNoVirtual":
             icon = Gtk.Image.new_from_gicon(Gio.ThemedIcon(name="dialog-warning"))
             icon.set_icon_size(Gtk.IconSize.LARGE)
@@ -644,7 +700,9 @@ class ChatHistory(Gtk.Box):
 
             content_box.append(box_warning)
             box.set_halign(Gtk.Align.CENTER)
-            box.set_css_classes(["card", "message-warning"])
+            box.set_css_classes(["bubble", "message-warning"])
+            box.set_margin_start(40)
+            box.set_margin_end(40)
         elif user == "Disclaimer":
             icon = Gtk.Image.new_from_gicon(Gio.ThemedIcon(name="user-info-symbolic"))
             icon.set_icon_size(Gtk.IconSize.LARGE)
@@ -679,38 +737,39 @@ class ChatHistory(Gtk.Box):
 
             content_box.append(box_warning)
             box.set_halign(Gtk.Align.CENTER)
-            box.set_css_classes(["card"])
+            box.set_css_classes(["bubble"])
+            box.set_margin_start(40)
+            box.set_margin_end(40)
         elif message is not None:
             content_box.append(message)
-        self.chat_list_block.append(box)
+        # Lay the bubble out as a chat row (warnings stay as centered bare bubbles)
+        if user in ("User", "Assistant", "Command", "Done", "Error", "File", "Folder"):
+            self.chat_list_block.append(self._arrange_message(user, box, profile_name))
+        else:
+            self.chat_list_block.append(box)
         return box
 
     def build_edit_box(self, box, id, has_prompt: bool = True):
-        """Create the box and the stack with the edit buttons
+        """Build the floating action toolbar for a message.
 
-        Args:
-            box (): box of the message
-            id (): id of the message
-
-        Returns:
-            tuple: (Gtk.Stack, Gtk.Button branch_button)
+        Returns a Gtk.Stack showing the action buttons ("edit") normally and
+        apply/cancel ("apply") while the message is being edited.
         """
-        edit_box = Gtk.Box()
-        buttons_box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            valign=Gtk.Align.CENTER,
-            halign=Gtk.Align.CENTER,
-        )
-        apply_box = Gtk.Box()
-
-        # Apply box
         apply_edit_stack = Gtk.Stack()
+        # Size to the visible child so the toolbar shrinks to the apply/cancel
+        # buttons while editing instead of keeping the full action-row width.
+        apply_edit_stack.set_hhomogeneous(False)
+        apply_edit_stack.set_vhomogeneous(False)
+
+        # Apply / cancel (shown while editing)
+        apply_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         apply_button = Gtk.Button(
             icon_name="check-plain-symbolic",
             css_classes=["flat", "success"],
             valign=Gtk.Align.CENTER,
             name=id,
         )
+        apply_button.set_tooltip_text(_("Apply"))
         apply_button.connect("clicked", self.apply_edit_message, box, apply_edit_stack)
         cancel_button = Gtk.Button(
             icon_name="circle-crossed-symbolic",
@@ -718,67 +777,63 @@ class ChatHistory(Gtk.Box):
             valign=Gtk.Align.CENTER,
             name=id,
         )
-        cancel_button.connect(
-            "clicked", self.cancel_edit_message, box, apply_edit_stack
-        )
+        cancel_button.set_tooltip_text(_("Cancel"))
+        cancel_button.connect("clicked", self.cancel_edit_message, box, apply_edit_stack)
         apply_box.append(apply_button)
         apply_box.append(cancel_button)
 
-        # Branch button (overlay)
-        branch_button = Gtk.Button(
-            icon_name="branch-symbolic",
-            css_classes=["flat", "warning"],
-            valign=Gtk.Align.END,
-            halign=Gtk.Align.END,
-            name=id,
-        )
-        branch_button.set_tooltip_text("Branch chat")
-        branch_button.connect("clicked", lambda btn: self.emit("branch-requested", int(id)))
-
-        # Edit box
-        button = Gtk.Button(
+        # Action buttons (shown on hover) - single horizontal row
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        edit_button = Gtk.Button(
             icon_name="document-edit-symbolic",
-            css_classes=["flat", "success"],
+            css_classes=["flat"],
             valign=Gtk.Align.CENTER,
             name=id,
         )
-        button.connect(
-            "clicked", self.edit_message, None, None, None, box, apply_edit_stack
+        edit_button.set_tooltip_text(_("Edit"))
+        edit_button.connect("clicked", self.edit_message, None, None, None, box, apply_edit_stack)
+        copy_button = Gtk.Button(
+            icon_name="edit-copy-symbolic",
+            css_classes=["flat"],
+            valign=Gtk.Align.CENTER,
         )
+        copy_button.set_tooltip_text(_("Copy"))
+        copy_button.connect("clicked", self.copy_message, int(id))
+        actions.append(edit_button)
+        actions.append(copy_button)
+        if has_prompt:
+            info_button = Gtk.Button(
+                icon_name="question-round-outline-symbolic",
+                css_classes=["flat"],
+                valign=Gtk.Align.CENTER,
+            )
+            info_button.set_tooltip_text(_("Show prompt"))
+            info_button.connect("clicked", self.show_prompt, int(id))
+            actions.append(info_button)
+        branch_button = Gtk.Button(
+            icon_name="branch-symbolic",
+            css_classes=["flat"],
+            valign=Gtk.Align.CENTER,
+            name=id,
+        )
+        branch_button.set_tooltip_text(_("Branch chat"))
+        branch_button.connect("clicked", lambda btn: self.emit("branch-requested", int(id)))
+        actions.append(branch_button)
         remove_button = Gtk.Button(
             icon_name="user-trash-symbolic",
             css_classes=["flat", "destructive-action"],
             valign=Gtk.Align.CENTER,
             name=id,
         )
+        remove_button.set_tooltip_text(_("Delete"))
         remove_button.connect("clicked", self.delete_message, box)
-        edit_box.append(button)
-        edit_box.append(remove_button)
-        buttons_box.append(edit_box)
-        if has_prompt:
-            prompt_box = Gtk.Box(halign=Gtk.Align.CENTER)
-            info_button = Gtk.Button(
-                icon_name="question-round-outline-symbolic",
-                css_classes=["flat", "accent"],
-                valign=Gtk.Align.CENTER,
-                halign=Gtk.Align.CENTER,
-            )
-            info_button.connect("clicked", self.show_prompt, int(id))
-            prompt_box.append(info_button)
-
-            copy_button = Gtk.Button(
-                icon_name="edit-copy-symbolic",
-                css_classes=["flat"],
-                valign=Gtk.Align.CENTER,
-            )
-            copy_button.connect("clicked", self.copy_message, int(id))
-            prompt_box.append(copy_button)
-            buttons_box.append(prompt_box)
+        actions.append(remove_button)
 
         apply_edit_stack.add_named(apply_box, "apply")
-        apply_edit_stack.add_named(buttons_box, "edit")
+        apply_edit_stack.add_named(actions, "edit")
         apply_edit_stack.set_visible_child_name("edit")
-        return apply_edit_stack, branch_button
+        return apply_edit_stack
+
 
 
     def apply_edit_message(self, gesture, box: Gtk.Box, apply_edit_stack: Gtk.Stack):
@@ -866,7 +921,8 @@ class ChatHistory(Gtk.Box):
             del self.chat[idx]
 
         try:
-            self.chat_list_block.remove(box.get_parent())
+            # Bubbles are wrapped in an avatar row inside the ListBoxRow
+            self.chat_list_block.remove(box.get_ancestor(Gtk.ListBoxRow))
             self.messages_box.remove(box)
         except Exception:
             pass
@@ -1018,8 +1074,9 @@ class ChatHistory(Gtk.Box):
         entry.set_margin_start(10)
         entry.set_margin_bottom(10)
         entry.set_size_request(wmax, hmax)
-        # Change the stack to edit controls
+        # Change the stack to edit controls and reveal the floating toolbar
         apply_edit_stack.set_visible_child_name("apply")
+        apply_edit_stack.set_visible(True)
         entry.set_on_enter(
             lambda entry: self.apply_edit_message(gesture, box, apply_edit_stack)
         )
@@ -1029,13 +1086,15 @@ class ChatHistory(Gtk.Box):
     def _wrap_message_box(self, user_type: str, content_box, id_message: int, editable: bool, profile_name=None):
         """Wrap a content box in the message wrapper (same logic as add_message)"""
         wrapper_box = Gtk.Box(
-            css_classes=["card"],
-            margin_top=10,
-            margin_start=10,
-            margin_bottom=10,
-            margin_end=10,
-            halign=Gtk.Align.START,
+            css_classes=["bubble"],
+            margin_top=6,
+            margin_start=0,
+            margin_bottom=6,
+            margin_end=0,
+            halign=Gtk.Align.FILL,
         )
+        # Group consecutive messages from the same sender (hide avatar/name)
+        wrapper_box.is_continuation = self._is_continuation(user_type, id_message, profile_name)
 
         # Create overlay for branch button positioning
         overlay = Gtk.Overlay(hexpand=True, vexpand=True)
@@ -1046,96 +1105,34 @@ class ChatHistory(Gtk.Box):
         overlay.set_child(inner_content_box)
 
         # Create edit controls if editable
-        stack = None
-        apply_edit_stack = None
         if editable:
-            apply_edit_stack, branch_button = self.build_edit_box(wrapper_box, str(id_message))
+            apply_edit_stack = self.build_edit_box(wrapper_box, str(id_message))
             evk = Gtk.GestureClick.new()
             evk.connect("pressed", self.edit_message, wrapper_box, apply_edit_stack)
             evk.set_name(str(id_message))
             evk.set_button(3)
             wrapper_box.add_controller(evk)
-            ev = Gtk.EventControllerMotion.new()
-            stack = Gtk.Stack()
-            ev.connect("enter", lambda x, y, data: (stack.set_visible_child_name("edit"), branch_button.set_visible(True)))
-            ev.connect("leave", lambda data: (stack.set_visible_child_name("label"), branch_button.set_visible(False)))
-            wrapper_box.add_controller(ev)
 
-            # Add branch button to overlay (bottom right positioning)
-            branch_button.set_visible(False)
-            branch_button.set_halign(Gtk.Align.END)
-            branch_button.set_valign(Gtk.Align.END)
-            branch_button.set_margin_end(10)
-            branch_button.set_margin_bottom(10)
-            overlay.add_overlay(branch_button)
+            apply_edit_stack.set_visible(False)
+            apply_edit_stack.add_css_class("message-actions")
+            # Placed in the row (and hover-wired) by _arrange_message.
+            wrapper_box.action_toolbar = apply_edit_stack
 
-        # Add user label
+        # Sender name removed; bubbles are identified by the avatar added below.
         if user_type == "User":
-            label = Gtk.Label(
-                label=self.controller.newelle_settings.username + ": ",
-                margin_top=10,
-                margin_start=10,
-                margin_bottom=10,
-                margin_end=0,
-                css_classes=["accent", "heading"],
-            )
-            if editable and stack is not None:
-                stack.add_named(label, "label")
-                stack.add_named(apply_edit_stack, "edit")
-                stack.set_visible_child_name("label")
-                inner_content_box.append(stack)
-            else:
-                inner_content_box.append(label)
-            wrapper_box.set_css_classes(["card", "user"])
+            wrapper_box.set_css_classes(["bubble", "user"])
         elif user_type == "Assistant":
-            display_name = profile_name or self.controller.newelle_settings.current_profile
-            label = Gtk.Label(
-                label=display_name + ": ",
-                margin_top=10,
-                margin_start=10,
-                margin_bottom=10,
-                margin_end=0,
-                css_classes=["warning", "heading"],
-                wrap=True,
-                ellipsize=Pango.EllipsizeMode.END,
-            )
-            if editable and stack is not None:
-                stack.add_named(label, "label")
-                stack.add_named(apply_edit_stack, "edit")
-                stack.set_visible_child_name("label")
-                inner_content_box.append(stack)
-            else:
-                inner_content_box.append(label)
-            wrapper_box.set_css_classes(["card", "assistant"])
+            # Assistant messages are plain text (no bubble)
+            wrapper_box.set_css_classes([])
         elif user_type == "File":
-            inner_content_box.append(
-                Gtk.Label(
-                    label=self.controller.newelle_settings.username + ": ",
-                    margin_top=10,
-                    margin_start=10,
-                    margin_bottom=10,
-                    margin_end=0,
-                    css_classes=["accent", "heading"],
-                )
-            )
-            wrapper_box.set_css_classes(["card", "file"])
+            wrapper_box.set_css_classes(["bubble", "file"])
         elif user_type == "Folder":
-            inner_content_box.append(
-                Gtk.Label(
-                    label=self.controller.newelle_settings.username + ": ",
-                    margin_top=10,
-                    margin_start=10,
-                    margin_bottom=10,
-                    margin_end=0,
-                    css_classes=["accent", "heading"],
-                )
-            )
-            wrapper_box.set_css_classes(["card", "folder"])
+            wrapper_box.set_css_classes(["bubble", "folder"])
 
         # Add content
         inner_content_box.append(content_box)
 
-        return wrapper_box
+        return self._arrange_message(user_type, wrapper_box, profile_name)
     def _load_message_range(self, start_idx: int, end_idx: int):
         """Load messages in the specified range (start_idx inclusive, end_idx exclusive)"""
         for i in range(start_idx, end_idx):
