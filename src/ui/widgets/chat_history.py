@@ -578,7 +578,6 @@ class ChatHistory(Gtk.Box):
                 self._wire_row_hover(row, toolbar)
             return row
 
-        # User side: right-aligned bubble; action toolbar floats to its left
         if user_type in ("User", "File", "Folder"):
             row = Gtk.Box(
                 orientation=Gtk.Orientation.HORIZONTAL,
@@ -588,13 +587,18 @@ class ChatHistory(Gtk.Box):
                 margin_end=8,
                 halign=Gtk.Align.FILL,
             )
-            row.append(Gtk.Box(hexpand=True))  # filler pushes content to the right
+            group = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                spacing=4,
+                halign=Gtk.Align.END,
+            )
             bubble.set_halign(Gtk.Align.END)
             if toolbar is not None:
-                toolbar.set_valign(Gtk.Align.START)
-                row.append(toolbar)  # immediately left of the bubble
+                toolbar.set_valign(Gtk.Align.CENTER)
+                group.append(toolbar)
                 self._wire_row_hover(row, toolbar)
-            row.append(bubble)
+            group.append(bubble)
+            row.append(group)
             return row
 
         # Status (Done/Error): left-aligned bubble, no avatar
