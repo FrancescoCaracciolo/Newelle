@@ -265,10 +265,29 @@ class LlamaCPPHandler(OpenAIHandler):
         # Use flatpak-spawn for compiled or prebuilt CUDA binaries in Flatpak
         is_prebuilt = self.get_setting("prebuilt", False, False)
         is_cuda_binary = is_prebuilt and self.get_setting("prebuilt_cuda", False, False)
-        if (is_flatpak() and self.is_gpu_installed() and self.get_setting("gpu_acceleration", False, False) and (is_cuda_binary or not is_prebuilt)) or use_system_server:
+        uses_built_server = cmd_path == self.llama_server_path
+        spawn_on_host = (is_flatpak() and self.is_gpu_installed() and self.get_setting("gpu_acceleration", False, False) and (is_cuda_binary or not is_prebuilt)) or use_system_server
+        if spawn_on_host:
             cmd = get_spawn_command() + cmd
 
-        self.server_process = subprocess.Popen(cmd)
+        # The built llama-server links against sibling libllama.so / libggml*.so
+        # shipped next to it in build/bin. Run it from that directory and expose
+        # it via LD_LIBRARY_PATH so the correct libraries are loaded instead of
+        # any system-wide libllama.so (which causes "undefined symbol" errors).
+        popen_kwargs = {}
+        if uses_built_server:
+            bin_dir = os.path.dirname(self.llama_server_path)
+            popen_kwargs["cwd"] = bin_dir
+            env = os.environ.copy()
+            ld_path = env.get("LD_LIBRARY_PATH", "")
+            env["LD_LIBRARY_PATH"] = f"{bin_dir}{os.pathsep}{ld_path}" if ld_path else bin_dir
+            if spawn_on_host:
+                # flatpak-spawn runs on the host; pass LD_LIBRARY_PATH through --env
+                cmd[1:1] = [f"--env=LD_LIBRARY_PATH={env['LD_LIBRARY_PATH']}"]
+            else:
+                popen_kwargs["env"] = env
+
+        self.server_process = subprocess.Popen(cmd, **popen_kwargs)
         self._killing_server = False
         threading.Thread(target=self._monitor_server, daemon=True).start()
         self.loaded_model = model
