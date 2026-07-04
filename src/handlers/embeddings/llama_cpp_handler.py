@@ -217,11 +217,18 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
         # Append user-supplied custom arguments
         if custom_args:
             cmd.extend(shlex.split(custom_args))
-        # Use flatpak-spawn for compiled or prebuilt CUDA binaries in Flatpak
+        # Use flatpak-spawn for compiled or GPU-accelerated prebuilt binaries in Flatpak
         is_prebuilt = self.get_setting("prebuilt", False, False)
-        is_cuda_binary = is_prebuilt and self.get_setting("prebuilt_cuda", False, False)
+        prebuilt_backend = self.get_setting("prebuilt_backend", False, None)
+        if prebuilt_backend is None:
+            # Backward compatibility: infer from the legacy prebuilt_cuda flag
+            prebuilt_backend = "cuda" if self.get_setting("prebuilt_cuda", False, False) else "cpu"
+        # GPU backends (cuda/rocm/vulkan/openvino/sycl) bundle native libs and
+        # need host GPU drivers, so their prebuilts must spawn on the host.
+        # CPU prebuilts run fine inside the sandbox.
+        is_gpu_prebuilt = is_prebuilt and prebuilt_backend != "cpu"
         uses_built_server = cmd_path == self.llama_server_path
-        spawn_on_host = (is_flatpak() and self.is_gpu_installed() and self.get_setting("gpu_acceleration", False, False) and (is_cuda_binary or not is_prebuilt)) or use_system_server
+        spawn_on_host = (is_flatpak() and self.is_gpu_installed() and self.get_setting("gpu_acceleration", False, False) and (is_gpu_prebuilt or not is_prebuilt)) or use_system_server
         if spawn_on_host:
             cmd = get_spawn_command() + cmd
 
@@ -628,7 +635,7 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
         left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.hw_options = {}
         group = None
-        for hw in ["CPU", "CPU (OpenBLAS)", "Nvidia (CUDA)", "AMD (ROCm)", "Any GPU (Vulkan)"]:
+        for hw in ["CPU", "CPU (OpenBLAS)", "Nvidia (CUDA)", "AMD (ROCm)", "Any GPU (Vulkan)", "Intel (OpenVINO)", "Intel (SYCL FP32)", "Intel (SYCL FP16)"]:
             btn = Gtk.CheckButton(label=hw, group=group)
             if group is None:
                 group = btn
@@ -807,6 +814,11 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             return "vulkan"
         elif "openvino" in name_lower:
             return "openvino"
+        elif "sycl" in name_lower:
+            # llama.cpp ships separate fp32 and fp16 SYCL builds
+            if "fp16" in name_lower:
+                return "sycl-fp16"
+            return "sycl-fp32"
         return "cpu"
 
     @staticmethod
@@ -833,6 +845,8 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             "rocm": "AMD ROCm",
             "vulkan": "Any GPU (Vulkan)",
             "openvino": "Intel OpenVINO",
+            "sycl-fp32": "Intel SYCL (FP32)",
+            "sycl-fp16": "Intel SYCL (FP16)",
         }.get(backend, backend)
         if backend == "cuda" and cuda_version is not None:
             name += f" {cuda_version:.1f}"
@@ -871,12 +885,33 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
                 pass
 
         try:
+            # The llama.cpp project sometimes publishes a release (tag) before
+            # attaching binary assets to it, so /releases/latest can return a
+            # release with zero assets. Walk back through recent releases and
+            # use the newest one that actually ships Ubuntu binaries.
             resp = requests.get(
-                "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest",
+                "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10",
                 timeout=15,
             )
             resp.raise_for_status()
-            release = resp.json()
+            releases = resp.json()
+            if not isinstance(releases, list):
+                releases = []
+
+            release = None
+            for candidate in releases:
+                if any(
+                    a.get("name", "").endswith(".tar.gz") and "-bin-ubuntu-" in a.get("name", "")
+                    for a in candidate.get("assets", [])
+                ):
+                    release = candidate
+                    break
+            # Fall back to the newest release overall so the empty-asset case
+            # surfaces as "no compatible binaries" rather than a crash.
+            if release is None and releases:
+                release = releases[0]
+            if release is None:
+                release = {}
             tag = release.get("tag_name", "unknown")
 
             for asset in release.get("assets", []):
@@ -929,13 +964,15 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             return
 
         backend_checks = {}
-        for b in ("cuda", "rocm", "vulkan", "openvino"):
+        for b in ("cuda", "rocm", "vulkan", "openvino", "sycl"):
             backend_checks[b] = has_backend(b)
 
         system_cuda = detect_cuda_version()
 
         for item in available:
-            item["compatible"] = item["backend"] == "cpu" or backend_checks.get(item["backend"], False)
+            # sycl-fp32 / sycl-fp16 share the same SYCL toolchain availability
+            base_backend = item["backend"].split("-")[0] if item["backend"].startswith("sycl") else item["backend"]
+            item["compatible"] = base_backend == "cpu" or backend_checks.get(base_backend, False)
             item["cuda_match"] = (
                 system_cuda is not None
                 and item.get("cuda_version") is not None
@@ -950,7 +987,10 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
                 cuda_priority = 2
             else:
                 cuda_priority = 3
-            backend_prio = {"cuda": 0, "rocm": 1, "vulkan": 2, "openvino": 3, "cpu": 4}.get(x["backend"], 99)
+            backend_prio = {
+                "cuda": 0, "rocm": 1, "vulkan": 2,
+                "openvino": 3, "sycl-fp16": 4, "sycl-fp32": 5, "cpu": 6,
+            }.get(x["backend"], 99)
             ver = x.get("cuda_version") or 0
             return (is_compatible, cuda_priority, backend_prio, -ver)
 
@@ -1126,7 +1166,10 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             GLib.idle_add(lambda: carousel.scroll_to(carousel.get_nth_page(5), True))
             GLib.idle_add(lambda: self.settings_update())
             self.set_setting("prebuilt", True)
-            self.set_setting("prebuilt_cuda", asset.get("backend") == "cuda")
+            backend = asset.get("backend", "cpu")
+            self.set_setting("prebuilt_backend", backend)
+            # Kept for backward compatibility with the pre-sycl load_model logic
+            self.set_setting("prebuilt_cuda", backend == "cuda")
             self.set_setting("gpu_acceleration", True)
 
         except Exception as e:
@@ -1142,6 +1185,12 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             backend = "rocm"
         elif self.hw_options["Any GPU (Vulkan)"].get_active():
             backend = "vulkan"
+        elif self.hw_options["Intel (OpenVINO)"].get_active():
+            backend = "openvino"
+        elif self.hw_options["Intel (SYCL FP32)"].get_active():
+            backend = "sycl-fp32"
+        elif self.hw_options["Intel (SYCL FP16)"].get_active():
+            backend = "sycl-fp16"
         elif self.hw_options["CPU (OpenBLAS)"].get_active():
             backend = "cpu_openblas"
 
@@ -1172,6 +1221,14 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             elif backend == "vulkan":
                 cmake_args.append("-DGGML_VULKAN=ON")
                 cmake_args.append("-DGGML_VULKAN_F16=ON")
+            elif backend == "openvino":
+                cmake_args.append("-DGGML_OPENVINO=ON")
+            elif backend in ("sycl-fp32", "sycl-fp16"):
+                cmake_args.append("-DGGML_SYCL=ON")
+                cmake_args.append("-DCMAKE_CXX_COMPILER=icpx")
+                cmake_args.append("-DCMAKE_C_COMPILER=icx")
+                if backend == "sycl-fp16":
+                    cmake_args.append("-DGGML_SYCL_F16=ON")
             elif backend == "cpu_openblas":
                 cmake_args.append("-DGGML_BLAS=ON")
                 cmake_args.append("-DGGML_BLAS_VENDOR=OpenBLAS")
@@ -1258,6 +1315,7 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             GLib.idle_add(lambda: carousel.scroll_to(carousel.get_nth_page(5), True))
             GLib.idle_add(lambda: self.settings_update())
             self.set_setting("prebuilt", False)
+            self.set_setting("prebuilt_backend", backend)
             self.set_setting("gpu_acceleration", True)
 
         except Exception as e:
