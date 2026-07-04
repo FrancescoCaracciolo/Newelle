@@ -376,6 +376,32 @@ def convert_think_codeblocks(text: str) -> str:
     """
     return text.replace("<think>", "```think").replace("</think>", "```")
 
+def extract_reasoning_content(message):
+    """
+    Extracts the first <think> block and the remaining clean text.
+
+    Args:
+        message: The input string containing the full message.
+
+    Returns:
+        A tuple of (reasoning, text). 
+        If no <think> block is found, reasoning is None.
+    """
+    pattern = r"<think>(.*?)</think>"
+    
+    # Search for the first match anywhere in the string
+    match = re.search(pattern, message, flags=re.DOTALL)
+    
+    if match:
+        # Extract the content inside the capture group
+        reasoning = match.group(1)
+        # Remove the entire <think>...</think> structure from the main text
+        clean_text = message.replace(match.group(0), "").strip()
+        return reasoning, clean_text
+    
+    # If no think block is found
+    return None, message.strip()
+
 def remove_thinking_blocks(text):
   """
   Removes <think>...</think> blocks from a given text using regular expressions.
