@@ -1372,7 +1372,7 @@ class NewelleController:
                 break
             if msg["User"] == "Console" and msg["Message"] == "None":
                 continue
-            msg["Message"], msg["Reasoning"] = extract_reasoning_content(msg["Message"])
+            msg["Reasoning"], msg["Message"] = extract_reasoning_content(msg["Message"])
             if msg["User"] == "File" or msg["User"] == "Folder":
                 msg["Message"] = f"```{msg['User'].lower()}\n{msg['Message'].strip()}\n```"
                 msg["User"] = "User"

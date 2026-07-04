@@ -400,8 +400,9 @@ def convert_history_openai(history: list, prompts: list, vision_support : bool =
                     text_part, tool_calls, _ = parsed_calls
                     ast_msg: dict = {"role": "assistant", "content": text_part or ""}
                     ast_msg["tool_calls"] = tool_calls
-                    if "Reasoning" in message and message["Reasoning"] and keep_reasoning_content:
+                    if "Reasoning" in message and message["Reasoning"] is not None and keep_reasoning_content:
                         ast_msg["reasoning_content"] = message["Reasoning"]
+                        print(ast_msg)
                     result.append(ast_msg)
                     continue
 
@@ -428,6 +429,8 @@ def convert_history_openai(history: list, prompts: list, vision_support : bool =
                 }
                 if "Reasoning" in message and message["Reasoning"] and keep_reasoning_content:
                     m["reasoning_content"] = message["Reasoning"]
+
+                result.append(m)
     return aggregate_messages(result, "openai")
 
 def aggregate_messages(messages: list, format="newelle"):
