@@ -431,13 +431,7 @@ class Settings(Adw.PreferencesWindow):
         row.add_suffix(switch)
         self.settings.bind("send-on-enter", switch, 'active', Gio.SettingsBindFlags.DEFAULT)
         self.interface.add(row)
-
-        row = Adw.ActionRow(title=_("Remove thinking from history"), subtitle=_("Do not send old thinking blocks for reasoning models in order to reduce token usage"))
-        switch = Gtk.Switch(valign=Gtk.Align.CENTER)
-        row.add_suffix(switch)
-        self.settings.bind("remove-thinking", switch, 'active', Gio.SettingsBindFlags.DEFAULT)
-        self.interface.add(row)
-        
+ 
         row = Adw.ActionRow(title=_("Display LaTeX"), subtitle=_("Display LaTeX formulas in chat"))
         switch = Gtk.Switch(valign=Gtk.Align.CENTER)
         row.add_suffix(switch)

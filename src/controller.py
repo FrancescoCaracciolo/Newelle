@@ -33,7 +33,7 @@ import datetime
 import uuid as uuid_lib
 from .extensions import ExtensionLoader
 from .utility import override_prompts
-from .utility.strings import clean_bot_response, clean_prompt, count_tokens, remove_thinking_blocks, get_edited_messages
+from .utility.strings import clean_bot_response, clean_prompt, count_tokens, extract_reasoning_content, get_edited_messages
 from .utility.context_manager import ContextManager, TrimResult
 from .utility.replacehelper import PromptFormatter, replace_variables_dict
 from enum import Enum 
@@ -1372,8 +1372,7 @@ class NewelleController:
                 break
             if msg["User"] == "Console" and msg["Message"] == "None":
                 continue
-            if self.newelle_settings.remove_thinking:
-                msg["Message"] = remove_thinking_blocks(msg["Message"])
+            msg["Reasoning"], msg["Message"] = extract_reasoning_content(msg["Message"])
             if msg["User"] == "File" or msg["User"] == "Folder":
                 msg["Message"] = f"```{msg['User'].lower()}\n{msg['Message'].strip()}\n```"
                 msg["User"] = "User"
@@ -1905,7 +1904,6 @@ class NewelleSettings:
         self.hidden_files = settings.get_boolean("hidden-files")
         self.remember_profile = settings.get_boolean("remember-profile")
         self.reverse_order = settings.get_boolean("reverse-order")
-        self.remove_thinking = settings.get_boolean("remove-thinking")
         self.auto_generate_name = settings.get_boolean("auto-generate-name")
         self.chat_id = settings.get_int("chat")
         self.main_path = settings.get_string("path")

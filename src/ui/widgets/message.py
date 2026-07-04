@@ -16,6 +16,14 @@ from pylatexenc.latex2text import LatexNodes2Text
 from .copybox import CopyBox
 from .thinking import ThinkingWidget
 from .latex import DisplayLatex, InlineLatex
+
+
+def _display_latex_base_size(zoom: int) -> int:
+    return max(10, int(16 * zoom / 100))
+
+
+def _inline_latex_size(zoom: int) -> int:
+    return int(5 + (zoom / 100 * 4))
 from .barchart import BarChartBox
 from .markuptextview import MarkupTextView
 from .tool import ToolWidget
@@ -108,6 +116,32 @@ class Message(Gtk.Box):
 
     def append(self, widget):
         super().append(widget)
+
+    def _walk_widgets(self, widget):
+        child = widget.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            yield child
+            yield from self._walk_widgets(child)
+            child = nxt
+
+    def apply_zoom(self, zoom: int) -> None:
+        """Re-render only the LaTeX widgets at the new application zoom.
+
+        Walks the live widget tree so it stays correct across streaming
+        re-renders without bookkeeping in the chunk processors.
+        """
+        if not self.controller.newelle_settings.display_latex:
+            return
+        inline_size = _inline_latex_size(zoom)
+        for w in self._walk_widgets(self):
+            if isinstance(w, DisplayLatex):
+                w.update_zoom(zoom)
+            elif isinstance(w, InlineLatex):
+                w.update_zoom(inline_size)
+                spacer = getattr(w, "_spacer", None)
+                if spacer is not None and w.dims:
+                    spacer.set_size_request(w.dims[0], w.dims[1] + 1)
 
     def _remove_widgets_from(self, start_index):
         while len(self.widgets_map) > start_index:
@@ -463,7 +497,8 @@ class Message(Gtk.Box):
             self._process_chart_codeblock(chunk, box)
         elif lang == "latex":
             try:
-                box.append(DisplayLatex(text, 16, self.controller.cache_dir))
+                base = _display_latex_base_size(self.controller.newelle_settings.zoom)
+                box.append(DisplayLatex(text, base, self.controller.cache_dir))
             except Exception:
                 box.append(self._create_copybox(text, lang, state=state, codeblock_id=codeblock_id, allow_edit=state["editable"], enable_run_callback=True))
         else:
@@ -527,7 +562,8 @@ class Message(Gtk.Box):
 
     def _process_latex(self, chunk, box):
         try:
-            box.append(DisplayLatex(chunk.text, 16, self.controller.cache_dir))
+            base = _display_latex_base_size(self.controller.newelle_settings.zoom)
+            box.append(DisplayLatex(chunk.text, base, self.controller.cache_dir))
         except Exception:
             box.append(self._create_copybox(chunk.text, "latex"))
 
@@ -555,14 +591,15 @@ class Message(Gtk.Box):
                 full_markdown += placeholder
                 
                 try:
-                    font_size = int(5 + (self.controller.newelle_settings.zoom / 100 * 4))
+                    font_size = _inline_latex_size(self.controller.newelle_settings.zoom)
                     latex = InlineLatex(subchunk.text, font_size)
                     latex_overlay = Gtk.Overlay()
                     latex_overlay.set_hexpand(False)
                     latex_overlay.add_overlay(latex)
                     spacer = Gtk.Box()
-                    spacer.set_size_request(latex.picture.dims[0], latex.picture.dims[1] + 1)
+                    spacer.set_size_request(latex.dims[0], latex.dims[1] + 1)
                     latex_overlay.set_child(spacer)
+                    latex._spacer = spacer
                     latex.set_margin_top(5)
                     widgets_dict[str(i)] = latex_overlay
                 except Exception:

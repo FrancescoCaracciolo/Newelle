@@ -710,6 +710,34 @@ class MainWindow(Adw.ApplicationWindow):
                 "gtk-xft-dpi", settings.get_property("gtk-xft-dpi") + (zoom - 100) * 400
             )
             self.controller.newelle_settings.zoom = zoom
+        # Matplotlib-rendered LaTeX ignores gtk-xft-dpi, so rebuild only the
+        # latex widgets at the new size. Tab pages persist across switches, so
+        # refresh every open chat tab, not just the active one.
+        self._refresh_latex_zoom(zoom)
+
+    def _refresh_latex_zoom(self, zoom):
+        chat_tabs = getattr(self, "chat_tabs", None)
+        if chat_tabs is None:
+            return
+
+        def walk(widget):
+            child = widget.get_first_child()
+            while child is not None:
+                nxt = child.get_next_sibling()
+                if isinstance(child, Message):
+                    child.apply_zoom(zoom)
+                else:
+                    walk(child)
+                child = nxt
+
+        for i in range(chat_tabs.get_n_pages()):
+            page = chat_tabs.get_nth_page(i)
+            child = page.get_child() if page is not None else None
+            chat_history = getattr(child, "chat_history", None) if child is not None else None
+            if chat_history is None:
+                continue
+            for box in chat_history.messages_box:
+                walk(box)
 
     def update_font_settings(self):
         ns = self.controller.newelle_settings
