@@ -242,6 +242,7 @@ utility_sources = [
   'utility/force_sync.py',
   'utility/context_manager.py',
   'utility/command_permissions.py',
+  'utility/background_process.py',
 ]
 
 install_data(newelle_sources, install_dir: moduledir)

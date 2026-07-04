@@ -1,6 +1,7 @@
 from ...handlers.llm import OpenAIHandler
 from ...handlers.extra_settings import ExtraSettings
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
+from ...utility.background_process import BackgroundProcess
 from ...handlers import ErrorSeverity
 import subprocess
 import os
@@ -12,7 +13,6 @@ import json
 import shutil
 import tarfile
 import tempfile
-import atexit
 from gi.repository import Gtk, Adw, GLib, Gdk
 from ...ui.model_library import ModelLibraryWindow, LibraryModel
 import requests
@@ -47,10 +47,9 @@ class LlamaCPPHandler(OpenAIHandler):
         self.llama_cpp_path = os.path.join(self.path, "llama.cpp")
         self.llama_server_path = os.path.join(self.llama_cpp_path, "build", "bin", "llama-server")
         self.model_folder = os.path.join(self.path, "custom_models")
-        self.server_process = None
-        self._atexit_handler = self.kill_server
+        self.server = BackgroundProcess("llama-server")
+        self.server.register_atexit()
         self._killing_server = False
-        atexit.register(self._atexit_handler)
         self.port = None
         self.loaded_model = None
         self.loaded_mmproj = None
@@ -274,10 +273,10 @@ class LlamaCPPHandler(OpenAIHandler):
         # shipped next to it in build/bin. Run it from that directory and expose
         # it via LD_LIBRARY_PATH so the correct libraries are loaded instead of
         # any system-wide libllama.so (which causes "undefined symbol" errors).
-        popen_kwargs = {}
+        start_kwargs = {}
         if uses_built_server:
             bin_dir = os.path.dirname(self.llama_server_path)
-            popen_kwargs["cwd"] = bin_dir
+            start_kwargs["cwd"] = bin_dir
             env = os.environ.copy()
             ld_path = env.get("LD_LIBRARY_PATH", "")
             env["LD_LIBRARY_PATH"] = f"{bin_dir}{os.pathsep}{ld_path}" if ld_path else bin_dir
@@ -285,11 +284,18 @@ class LlamaCPPHandler(OpenAIHandler):
                 # flatpak-spawn runs on the host; pass LD_LIBRARY_PATH through --env
                 cmd[1:1] = [f"--env=LD_LIBRARY_PATH={env['LD_LIBRARY_PATH']}"]
             else:
-                popen_kwargs["env"] = env
+                start_kwargs["env"] = env
 
-        self.server_process = subprocess.Popen(cmd, **popen_kwargs)
+        self.server.start(
+            cmd,
+            on_crash=lambda: GLib.idle_add(
+                self.throw,
+                "llama-server crashed unexpectedly. Check terminal output for details.",
+                ErrorSeverity.ERROR,
+            ),
+            **start_kwargs,
+        )
         self._killing_server = False
-        threading.Thread(target=self._monitor_server, daemon=True).start()
         self.loaded_model = model
         self.loaded_on = self.get_setting("gpu_acceleration", False, False)
         self.loaded_ctx = ctx
@@ -309,37 +315,10 @@ class LlamaCPPHandler(OpenAIHandler):
     def kill_server(self):
         self.loaded_model = None
         self._killing_server = True
-        if self.server_process:
-            try:
-                self.server_process.terminate()
-                # Wait up to 5 seconds for graceful termination
-                try:
-                    self.server_process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    # Force kill if it doesn't terminate gracefully
-                    self.server_process.kill()
-                    self.server_process.wait()
-            except (ProcessLookupError, ValueError):
-                # Process already terminated
-                pass
-            finally:
-                self.server_process = None
+        self.server.stop()
 
-    def _monitor_server(self):
-        proc = self.server_process
-        if proc is None:
-            return
-        proc.wait()
-        if not self._killing_server and self.server_process is None and self.loaded_model is not None:
-            self.loaded_model = None
-            GLib.idle_add(self.throw, "llama-server crashed unexpectedly. Check terminal output for details.", ErrorSeverity.ERROR)
-    
     def destroy(self):
         self.kill_server()
-        try:
-            atexit.unregister(self._atexit_handler)
-        except AttributeError:
-            pass
 
     # Model library
     def fetch_models(self):
