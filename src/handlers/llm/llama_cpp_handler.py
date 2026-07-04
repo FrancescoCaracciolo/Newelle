@@ -480,7 +480,7 @@ class LlamaCPPHandler(OpenAIHandler):
 
     def show_install_dialog(self, button):
         win = Adw.Window(title="Install llama.cpp")
-        win.set_default_size(700, 620)
+        win.set_default_size(700, 760)
         win.set_modal(True)
         try:
             root = button.get_root()
