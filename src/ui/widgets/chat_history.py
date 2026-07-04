@@ -517,16 +517,25 @@ class ChatHistory(Gtk.Box):
                 return False
         return True
 
+    def _set_tray_visible(self, toolbar, visible: bool):
+        """Set the visibility of the action toolbar/tray while keeping it allocated."""
+        if visible:
+            toolbar.set_opacity(1.0)
+            toolbar.set_can_target(True)
+        else:
+            toolbar.set_opacity(0.0)
+            toolbar.set_can_target(False)
+
     def _wire_row_hover(self, row, toolbar):
         """Reveal the action toolbar on hover; keep it visible while editing."""
         ev = Gtk.EventControllerMotion.new()
 
         def _on_enter(_x, _y, _d):
-            toolbar.set_visible(True)
+            self._set_tray_visible(toolbar, True)
 
         def _on_leave(_d):
             if toolbar.get_visible_child_name() != "apply":
-                toolbar.set_visible(False)
+                self._set_tray_visible(toolbar, False)
 
         ev.connect("enter", _on_enter)
         ev.connect("leave", _on_leave)
@@ -651,7 +660,7 @@ class ChatHistory(Gtk.Box):
             evk.set_button(3)
             box.add_controller(evk)
 
-            apply_edit_stack.set_visible(False)
+            self._set_tray_visible(apply_edit_stack, False)
             apply_edit_stack.add_css_class("message-actions")
             # Placed in the row (and hover-wired) by _arrange_message.
             box.action_toolbar = apply_edit_stack
@@ -1081,7 +1090,7 @@ class ChatHistory(Gtk.Box):
         entry.set_size_request(max(1, wmax - 20), max(1, hmax - 20))
         # Change the stack to edit controls and reveal the floating toolbar
         apply_edit_stack.set_visible_child_name("apply")
-        apply_edit_stack.set_visible(True)
+        self._set_tray_visible(apply_edit_stack, True)
         entry.set_on_enter(
             lambda entry: self.apply_edit_message(gesture, box, apply_edit_stack)
         )
@@ -1118,7 +1127,7 @@ class ChatHistory(Gtk.Box):
             evk.set_button(3)
             wrapper_box.add_controller(evk)
 
-            apply_edit_stack.set_visible(False)
+            self._set_tray_visible(apply_edit_stack, False)
             apply_edit_stack.add_css_class("message-actions")
             # Placed in the row (and hover-wired) by _arrange_message.
             wrapper_box.action_toolbar = apply_edit_stack
