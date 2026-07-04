@@ -8,6 +8,7 @@ import subprocess
 import os
 import platform
 import threading
+import shlex
 import socket
 import time
 import json
@@ -53,6 +54,7 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
         self._killing_server = False
         self.port = None
         self.loaded_model = None
+        self.loaded_custom_args = None
         self.models = self.get_custom_model_list()
         self.loaded_on = self.get_setting("gpu_acceleration", False, False)
         self.downloading = {}
@@ -149,6 +151,16 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             )
         )
 
+        settings.append(
+            ExtraSettings.MultilineEntrySetting(
+                "custom_args",
+                "Custom Arguments",
+                "Additional command-line arguments passed to llama-server (e.g. --threads 4 --no-mmap). Leave empty for none.",
+                "",
+                update_settings=True,
+            )
+        )
+
         #settings.extend(
         #    [
         #        ExtraSettings.ButtonSetting("library", "Model Library", "Open the model library", self.open_model_library, label="Model Library")
@@ -180,7 +192,8 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
     def load_model(self, model=None):
         if model is None:
             model = self.get_setting("model")
-        if self.loaded_model == model and self.loaded_on == self.get_setting("gpu_acceleration", False, False):
+        custom_args = self.get_setting("custom_args", False, "")
+        if self.loaded_model == model and self.loaded_on == self.get_setting("gpu_acceleration", False, False) and self.loaded_custom_args == custom_args:
             return True
         path = self._resolve_model_path(model)
         if not path or not os.path.exists(path):
@@ -201,6 +214,9 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
         else:
             cmd_path = "llama-server"
         cmd = [cmd_path, "--model", path, "--port", str(self.port), "--host", "127.0.0.1", "--embeddings" ]
+        # Append user-supplied custom arguments
+        if custom_args:
+            cmd.extend(shlex.split(custom_args))
         # Use flatpak-spawn for compiled or prebuilt CUDA binaries in Flatpak
         is_prebuilt = self.get_setting("prebuilt", False, False)
         is_cuda_binary = is_prebuilt and self.get_setting("prebuilt_cuda", False, False)
@@ -238,6 +254,7 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
         self._killing_server = False
         self.loaded_model = model
         self.loaded_on = self.get_setting("gpu_acceleration", False, False)
+        self.loaded_custom_args = custom_args
         # Wait for server to potentially start
         url = f"http://localhost:{self.port}/v1/models"
         start_time = time.time()

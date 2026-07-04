@@ -7,6 +7,7 @@ import subprocess
 import os
 import platform
 import threading
+import shlex
 import socket
 import time
 import json
@@ -53,6 +54,7 @@ class LlamaCPPHandler(OpenAIHandler):
         self.port = None
         self.loaded_model = None
         self.loaded_mmproj = None
+        self.loaded_custom_args = None
         self.models = self.get_custom_model_list()
         self.loaded_on = self.get_setting("gpu_acceleration", False, False)
         self.set_setting("api", "no")
@@ -199,6 +201,16 @@ class LlamaCPPHandler(OpenAIHandler):
             )
         )
 
+        settings.append(
+            ExtraSettings.MultilineEntrySetting(
+                "custom_args",
+                "Custom Arguments",
+                "Additional command-line arguments passed to llama-server (e.g. --threads 4 --no-mmap). Leave empty for none.",
+                "",
+                update_settings=True,
+            )
+        )
+
         if not self.is_gpu_installed():
             settings.append(
                 ExtraSettings.ButtonSetting("install", "Install LlamaCPP (Hardware Acceleration)", "Build llama.cpp with hardware acceleration", self.show_install_dialog, label="Install")
@@ -234,7 +246,8 @@ class LlamaCPPHandler(OpenAIHandler):
         mmproj = self.get_setting("mmproj", False, None) if enable_mmproj else ""
         if mmproj is None and len(self.get_mmproj_list()) > 0:
             mmproj = self.get_mmproj_list()[0][1]
-        if self.loaded_model == model and self.loaded_on == self.get_setting("gpu_acceleration", False, False) and self.loaded_ctx == ctx and self.loaded_mmproj == mmproj:
+        custom_args = self.get_setting("custom_args", False, "")
+        if self.loaded_model == model and self.loaded_on == self.get_setting("gpu_acceleration", False, False) and self.loaded_ctx == ctx and self.loaded_mmproj == mmproj and self.loaded_custom_args == custom_args:
             return True
         path = self._resolve_model_path(self.get_setting("model"))
         if not path or not os.path.exists(path):
@@ -255,7 +268,11 @@ class LlamaCPPHandler(OpenAIHandler):
         else:
             cmd_path = "llama-server"
         cmd = [cmd_path, "--model", path, "--port", str(self.port), "--host", "127.0.0.1", "-c", str(ctx), "--reasoning-format", "none"]
-        
+
+        # Append user-supplied custom arguments
+        if custom_args:
+            cmd.extend(shlex.split(custom_args))
+
         # Add mmproj for vision support if enabled and configured
         if self.get_setting("enable_mmproj") and mmproj:
             mmproj_path = self._resolve_model_path(mmproj)
@@ -300,6 +317,7 @@ class LlamaCPPHandler(OpenAIHandler):
         self.loaded_on = self.get_setting("gpu_acceleration", False, False)
         self.loaded_ctx = ctx
         self.loaded_mmproj = mmproj
+        self.loaded_custom_args = custom_args
         # Wait for server to potentially start
         url = f"http://localhost:{self.port}/v1/models"
         start_time = time.time()
