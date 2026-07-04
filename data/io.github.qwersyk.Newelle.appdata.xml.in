@@ -45,7 +45,6 @@
                 <p>Bug fixes and stability improvements.</p>
             </description>
         </release>
-	<releases>
         <release version="1.4.5" date="2026-06-19">
             <description>
                 <p>Added image generation support and various improvements.</p>
