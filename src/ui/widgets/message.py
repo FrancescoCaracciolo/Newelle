@@ -267,7 +267,7 @@ class Message(Gtk.Box):
         elif chunk.type in ("latex", "latex_inline"):
             self._process_latex(chunk, box)
         elif chunk.type == "thinking":
-            think = ThinkingWidget()
+            think = ThinkingWidget(expanded=self.controller.settings.get_boolean("expand-reasoning"))
             self.thinking_widget = think
             think.start_thinking(chunk.text)
             box.append(think)
@@ -478,7 +478,7 @@ class Message(Gtk.Box):
         if lang in codeblocks:
             self._process_extension_codeblock(chunk, box, state, restore, msg_uuid, codeblocks[lang])
         elif lang == "think":
-            think = ThinkingWidget()
+            think = ThinkingWidget(expanded=self.controller.settings.get_boolean("expand-reasoning"))
             think.set_thinking(text)
             box.append(think)
         elif lang == "image":

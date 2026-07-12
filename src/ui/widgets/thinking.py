@@ -12,7 +12,7 @@ class ThinkingWidget(Gtk.Box):
         'thinking-stopped': (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
-    def __init__(self, **kwargs):
+    def __init__(self, expanded=False, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, **kwargs)
         self.add_css_class("card")
         self.set_margin_top(10)
@@ -26,7 +26,7 @@ class ThinkingWidget(Gtk.Box):
             title=_("Thoughts"),
             subtitle=_("Expand to see details"),
             show_enable_switch=False,
-            expanded=False # Start collapsed
+            expanded=expanded
         )
 
         self.spinner = Gtk.Spinner(

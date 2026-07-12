@@ -438,6 +438,12 @@ class Settings(Adw.PreferencesWindow):
         self.settings.bind("display-latex", switch, 'active', Gio.SettingsBindFlags.DEFAULT)
         self.interface.add(row)
 
+        row = Adw.ActionRow(title=_("Expand reasoning by default"), subtitle=_("Expand the reasoning widget by default and keep it expanded when finished"))
+        switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        row.add_suffix(switch)
+        self.settings.bind("expand-reasoning", switch, 'active', Gio.SettingsBindFlags.DEFAULT)
+        self.interface.add(row)
+
         row = Adw.ActionRow(title=_("Reverse Chat Order"), subtitle=_("Show most recent chats on top in chat list (change chat to apply)"))
         switch = Gtk.Switch(valign=Gtk.Align.CENTER)
         row.add_suffix(switch)
