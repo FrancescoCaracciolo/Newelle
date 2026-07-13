@@ -124,7 +124,8 @@ class ChatTab(Gtk.Box):
         self._build_input_box()
         
     def _build_input_box(self):
-        """Build the input box with attach, record, text entry, and send buttons."""
+        """Build the stacked-card input box.
+        """
         self.input_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             halign=Gtk.Align.FILL,
@@ -134,6 +135,10 @@ class ChatTab(Gtk.Box):
             margin_bottom=6,
             spacing=6,
         )
+        # Frame the whole composer as a single rounded card. We reuse Adwaita's
+        # `card` class for the themed surface + border, then round the corners.
+        # The inner MultilineEntry has its own .card/.frame stripped so it
+        # blends into this outer card instead of drawing a second frame.
         self.input_box.add_css_class("card")
         self.input_box.add_css_class("input-card")
         apply_css_to_widget(self.input_box, """
@@ -148,30 +153,6 @@ class ChatTab(Gtk.Box):
             }
         """)
         self.input_box.set_valign(Gtk.Align.CENTER)
-
-        # --- Context row: mode switcher (left) + thinking control (right) ---
-        context_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=6,
-            margin_start=4,
-            margin_end=4,
-        )
-        # Mode switcher (built only if the controller has a mode manager).
-        self.mode_button = None
-        if getattr(self.controller, "mode_manager", None) is not None:
-            self.mode_button = ModeButton(self.controller, self.window)
-            context_row.append(self.mode_button)
-
-        self.thinking_button = self._build_thinking_control()
-        context_row.append(self.thinking_button)
-        # Spacer pushing the thinking control to the right.
-        context_right = Gtk.Box(hexpand=True)
-        context_row.append(context_right)
-        # Move the thinking button after the spacer so it sits on the right.
-        context_row.remove(self.thinking_button)
-        context_right.append(self.thinking_button)
-
-        self.input_box.append(context_row)
 
         # --- Text entry ---
         self.input_panel = MultilineEntry(not self.controller.newelle_settings.send_on_enter)
@@ -190,8 +171,9 @@ class ChatTab(Gtk.Box):
             margin_end=2,
         )
 
-        # Left cluster: attach / screen record / quick toggles
+        # Left cluster order: attach / screen record / quick toggles / mode / effort
         left_cluster = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+
         self.attach_button = Gtk.Button(
             css_classes=["flat", "circular"], icon_name="attach-symbolic",
             tooltip_text=_("Attach file"),
@@ -217,6 +199,16 @@ class ChatTab(Gtk.Box):
         self._build_quick_toggles()
         left_cluster.append(self.quick_toggles)
 
+        # Mode switcher (built only if the controller has a mode manager).
+        self.mode_button = None
+        if getattr(self.controller, "mode_manager", None) is not None:
+            self.mode_button = ModeButton(self.controller, self.window)
+            left_cluster.append(self.mode_button)
+
+        # Thinking-effort control (auto-hidden unless the model opts in).
+        self.thinking_button = self._build_thinking_control()
+        left_cluster.append(self.thinking_button)
+
         actions_row.append(left_cluster)
 
         # Right cluster (pushed to the end)
@@ -238,7 +230,7 @@ class ChatTab(Gtk.Box):
 
         self.send_button = Gtk.Button(
             css_classes=["suggested-action"],
-            icon_name="paper-plane-symbolic",
+            icon_name="go-next-symbolic",
             width_request=36,
             height_request=36,
             tooltip_text=_("Send"),
