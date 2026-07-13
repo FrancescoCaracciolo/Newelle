@@ -39,7 +39,8 @@ newelle_sources = [
   'controller.py',
   'ui_controller.py',
   'tools.py',
-  'skills.py'
+  'skills.py',
+  'modes.py'
 ]
 
 integrations_sources = [
@@ -109,6 +110,8 @@ widgets_sources = [
   'ui/widgets/chatrow.py',
   'ui/widgets/chat_history.py',
   'ui/widgets/chat_tab.py',
+  'ui/widgets/mode_switcher.py',
+  'ui/widgets/mode_editor.py',
   'ui/widgets/call.py',
   'ui/widgets/question.py',
   'ui/widgets/image_generator.py',

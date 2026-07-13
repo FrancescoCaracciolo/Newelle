@@ -887,6 +887,18 @@ class MainWindow(Adw.ApplicationWindow):
                 child.screen_record_button.set_visible(
                     self.model.supports_video_vision() and not child.attached_image_data
                 )
+                # Refresh the Mode switcher label and the thinking control so
+                # they follow the active LLM's capabilities.
+                child.refresh_mode_and_thinking()
+
+    def refresh_mode_buttons(self):
+        """Refresh the Mode switcher in every chat tab (after a mode edit)."""
+        n_pages = self.chat_tabs.get_n_pages()
+        for i in range(n_pages):
+            page = self.chat_tabs.get_nth_page(i)
+            child = page.get_child()
+            if isinstance(child, ChatTab):
+                child.refresh_mode_and_thinking()
 
     # Model popup
     def update_model_popup(self):

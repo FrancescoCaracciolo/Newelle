@@ -18,8 +18,10 @@ import base64
 
 from .chat_history import ChatHistory
 from .multiline import MultilineEntry
+from .mode_switcher import ModeButton
 from .documents_reader import DocumentReaderWidget
 from .message import Message
+from .. import apply_css_to_widget
 from ...utility.strings import (
     clean_message_tts,
     convert_think_codeblocks,
@@ -124,6 +126,7 @@ class ChatTab(Gtk.Box):
     def _build_input_box(self):
         """Build the input box with attach, record, text entry, and send buttons."""
         self.input_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
             halign=Gtk.Align.FILL,
             margin_start=6,
             margin_end=6,
@@ -131,78 +134,134 @@ class ChatTab(Gtk.Box):
             margin_bottom=6,
             spacing=6,
         )
+        self.input_box.add_css_class("card")
+        self.input_box.add_css_class("input-card")
+        apply_css_to_widget(self.input_box, """
+            .card.input-card {
+                border-radius: 14px;
+                padding: 6px 10px;
+            }
+            /* Ensure the inner text view inherits the card background. */
+            .input-card scrolledwindow,
+            .input-card text {
+                background-color: transparent;
+            }
+        """)
         self.input_box.set_valign(Gtk.Align.CENTER)
-        
-        # Quick toggles
-        self._build_quick_toggles()
-        
-        # Attach button
-        self.attach_button = Gtk.Button(
-            css_classes=["flat", "circular"], icon_name="attach-symbolic"
+
+        # --- Context row: mode switcher (left) + thinking control (right) ---
+        context_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=6,
+            margin_start=4,
+            margin_end=4,
         )
-        self.attach_button.connect("clicked", self.attach_file)
-        self.input_box.append(self.attach_button)
-        
-        # Attached image preview
-        self.attached_image = Gtk.Image(visible=False)
-        self.attached_image.set_size_request(36, 36)
-        self.input_box.append(self.attached_image)
-        
-        # Update attach button visibility based on model capabilities
-        self._update_attach_visibility()
-        
-        # Screen recording button
-        self.screen_record_button = Gtk.Button(
-            icon_name="media-record-symbolic",
-            css_classes=["flat"],
-            halign=Gtk.Align.CENTER,
-        )
-        self.screen_record_button.connect("clicked", self.start_screen_recording)
-        self.input_box.append(self.screen_record_button)
-        
-        if not self.model.supports_video_vision():
-            self.screen_record_button.set_visible(False)
-        
-        # Text entry
+        # Mode switcher (built only if the controller has a mode manager).
+        self.mode_button = None
+        if getattr(self.controller, "mode_manager", None) is not None:
+            self.mode_button = ModeButton(self.controller, self.window)
+            context_row.append(self.mode_button)
+
+        self.thinking_button = self._build_thinking_control()
+        context_row.append(self.thinking_button)
+        # Spacer pushing the thinking control to the right.
+        context_right = Gtk.Box(hexpand=True)
+        context_row.append(context_right)
+        # Move the thinking button after the spacer so it sits on the right.
+        context_row.remove(self.thinking_button)
+        context_right.append(self.thinking_button)
+
+        self.input_box.append(context_row)
+
+        # --- Text entry ---
         self.input_panel = MultilineEntry(not self.controller.newelle_settings.send_on_enter)
         self.input_panel.set_on_image_pasted(self.image_pasted)
+        # The outer card frames the entry; drop the inner MultilineEntry chrome.
+        self.input_panel.remove_css_class("card")
+        self.input_panel.remove_css_class("frame")
         self.input_box.append(self.input_panel)
         self.input_panel.set_placeholder(_("Send a message..."))
-        
-        # Mic button
+
+        # --- Actions row ---
+        actions_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=4,
+            margin_start=2,
+            margin_end=2,
+        )
+
+        # Left cluster: attach / screen record / quick toggles
+        left_cluster = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        self.attach_button = Gtk.Button(
+            css_classes=["flat", "circular"], icon_name="attach-symbolic",
+            tooltip_text=_("Attach file"),
+        )
+        self.attach_button.connect("clicked", self.attach_file)
+        left_cluster.append(self.attach_button)
+
+        self.attached_image = Gtk.Image(visible=False)
+        self.attached_image.set_size_request(36, 36)
+        left_cluster.append(self.attached_image)
+
+        self.screen_record_button = Gtk.Button(
+            icon_name="media-record-symbolic",
+            css_classes=["flat", "circular"],
+            tooltip_text=_("Screen recording"),
+        )
+        self.screen_record_button.connect("clicked", self.start_screen_recording)
+        left_cluster.append(self.screen_record_button)
+        if not self.model.supports_video_vision():
+            self.screen_record_button.set_visible(False)
+
+        # Quick toggles popover button
+        self._build_quick_toggles()
+        left_cluster.append(self.quick_toggles)
+
+        actions_row.append(left_cluster)
+
+        # Right cluster (pushed to the end)
+        right_spacer = Gtk.Box(hexpand=True)
+        actions_row.append(right_spacer)
+        right_cluster = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self.mic_button = Gtk.Button(
-            css_classes=["suggested-action"],
+            css_classes=["flat", "circular"],
             icon_name="audio-input-microphone-symbolic",
             width_request=36,
             height_request=36,
+            tooltip_text=_("Record"),
         )
         self.mic_button.set_vexpand(False)
         self.mic_button.set_valign(Gtk.Align.CENTER)
         self.mic_button.connect("clicked", self.start_recording)
         self.recording_button = self.mic_button
-        self.input_box.append(self.mic_button)
-        
-        # Send button
-        send_box = Gtk.Box()
-        send_box.set_vexpand(False)
+        right_cluster.append(self.mic_button)
+
         self.send_button = Gtk.Button(
             css_classes=["suggested-action"],
-            icon_name="go-next-symbolic",
+            icon_name="paper-plane-symbolic",
             width_request=36,
             height_request=36,
+            tooltip_text=_("Send"),
         )
         self.send_button.set_vexpand(False)
         self.send_button.set_valign(Gtk.Align.CENTER)
-        send_box.append(self.send_button)
-        self.input_box.append(send_box)
-        
+        right_cluster.append(self.send_button)
+        actions_row.append(right_cluster)
+
+        self.input_box.append(actions_row)
+
+        self._update_attach_visibility()
+
         self.input_panel.set_on_enter(self.on_entry_activate)
         self.send_button.connect("clicked", self.on_entry_button_clicked)
-        
+
         self._build_command_popover()
         self.input_panel.input_panel.get_buffer().connect("changed", self._on_input_changed)
 
         self.append(self.input_box)
+
+        # Populate the thinking control from the current model's capabilities.
+        self._populate_thinking_control()
 
     def _build_command_popover(self):
         """Build the slash-command hints popover attached to the input panel."""
@@ -366,9 +425,10 @@ class ChatTab(Gtk.Box):
             thread.start()
 
     def _build_quick_toggles(self):
-        """Build quick toggle buttons for settings."""
+        """Build quick toggle buttons for settings (a popover MenuButton)."""
         self.quick_toggles = Gtk.MenuButton(
-            css_classes=["flat"], icon_name="controls-big"
+            css_classes=["flat", "circular"], icon_name="controls-big",
+            tooltip_text=_("Quick toggles"),
         )
         self.quick_toggles_popover = Gtk.Popover()
         entries = [
@@ -405,12 +465,78 @@ class ChatTab(Gtk.Box):
         
         self.quick_toggles_popover.set_child(container)
         self.quick_toggles.set_popover(self.quick_toggles_popover)
-        self.input_box.append(self.quick_toggles)
         self.quick_toggles_popover.connect("closed", self._update_toggles)
         
     def _update_toggles(self, *_):
         """Update settings when quick toggles popover is closed."""
         self.controller.update_settings()
+
+    def _build_thinking_control(self):
+        """Build the thinking-effort MenuButton (hidden unless the model opts in).
+
+        The popover lists the levels returned by ``model.get_thinking_modes()``;
+        selecting one calls ``model.set_thinking_mode()`` and reloads settings.
+        Hidden entirely when the handler returns ``None``.
+        """
+        button = Gtk.MenuButton(css_classes=["flat"], valign=Gtk.Align.CENTER)
+        button.set_visible(False)
+        button.connect("notify::visible", lambda *_: None)
+        self._thinking_popover = Gtk.Popover()
+        button.set_popover(self._thinking_popover)
+        self._thinking_label = Gtk.Label(label="")
+        self._thinking_arrow = Gtk.Image(icon_name="pan-down-symbolic")
+        self._thinking_arrow.add_css_class("dim-label")
+        _box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        _box.append(Gtk.Image(icon_name="brain-augemnted-symbolic", pixel_size=16))
+        _box.append(self._thinking_label)
+        _box.append(self._thinking_arrow)
+        button.set_child(_box)
+        return button
+
+    def _populate_thinking_control(self):
+        """Rebuild the thinking control from the current model's capabilities."""
+        model = self.model
+        modes = model.get_thinking_modes() if hasattr(model, "get_thinking_modes") else None
+        if not modes:
+            self.thinking_button.set_visible(False)
+            self._thinking_popover.set_child(None)
+            return
+
+        current = model.get_thinking_mode()
+        # Label: show the label of the current value, fallback to the value.
+        label = next((lbl for val, lbl in modes if val == current), modes[0][1])
+        self._thinking_label.set_label(label)
+        self.thinking_button.set_visible(True)
+
+        list_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        list_box.add_css_class("boxed-list")
+        list_box.set_size_request(220, -1)
+        for value, lbl in modes:
+            row = Adw.ActionRow(title=lbl, activatable=True)
+            if value == current:
+                row.add_suffix(Gtk.Image(icon_name="object-select-symbolic"))
+            row.connect("activated", lambda _r, v=value: self._on_thinking_selected(v))
+            list_box.append(row)
+        self._thinking_popover.set_child(list_box)
+
+    def _on_thinking_selected(self, value: str):
+        try:
+            self.model.set_thinking_mode(value)
+        except Exception as e:
+            print("Thinking mode error:", e)
+        self.controller.update_settings()
+        self._thinking_popover.popdown()
+        self._populate_thinking_control()
+
+    def refresh_mode_and_thinking(self):
+        """Refresh the mode switcher label and the thinking control.
+
+        Called on LLM change and after mode edits so the controls reflect the
+        current state.
+        """
+        if self.mode_button is not None:
+            self.mode_button.refresh()
+        self._populate_thinking_control()
         
     def _update_attach_visibility(self):
         """Update attach button visibility based on model capabilities."""

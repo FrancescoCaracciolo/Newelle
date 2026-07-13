@@ -30,6 +30,8 @@ from .chatrow import ChatRow
 from .folderrow import FolderRow
 from .chat_history import ChatHistory
 from .chat_tab import ChatTab
+from .mode_switcher import ModeButton
+from .mode_editor import ModeEditorDialog
 from .call import CallPanel
 
 __all__ = [
@@ -69,5 +71,7 @@ __all__ = [
     "FolderRow",
     "ChatHistory",
     "ChatTab",
+    "ModeButton",
+    "ModeEditorDialog",
     "CallPanel"
 ]
