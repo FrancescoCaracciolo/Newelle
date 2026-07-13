@@ -146,6 +146,12 @@
         <key name="current-profile" type="s">
           <default>"Assistant"</default>
         </key>
+        <key name="modes" type="s">
+          <default>"{}"</default>
+        </key>
+        <key name="current-mode" type="s">
+          <default>"Normal"</default>
+        </key>
         <key name="user-name" type="s">
           <default>"User"</default>
         </key>

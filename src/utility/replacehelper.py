@@ -76,6 +76,13 @@ class ReplaceHelper:
         # Link websearch setting with the search tool
         if not controller.newelle_settings.websearch_on:
             enabled_tools["search"] = False
+        # Apply the active Mode's tool overrides (enable/remove/no_change) so
+        # that the {TOOLS} prompt and get_enabled_tools() stay consistent.
+        mode_manager = getattr(controller, "mode_manager", None)
+        if mode_manager is not None:
+            for tool in controller.tools.get_all_tools():
+                base = enabled_tools.get(tool.name, tool.default_on)
+                enabled_tools[tool.name] = mode_manager.resolve_tool_enabled(tool.name, base)
         # Tools already discovered via tool_search are emitted with their full
         # schema so they can be invoked through native tool calling too.
         expanded_tools = getattr(controller, "expanded_tools", None)
@@ -92,6 +99,16 @@ class ReplaceHelper:
         if not hasattr(ReplaceHelper.controller, "skill_manager"):
             return ""
         return ReplaceHelper.controller.skill_manager.get_catalog()
+
+    @staticmethod
+    def get_mode_prompt() -> str:
+        """Return the active Mode's prompt text (empty string if none)."""
+        controller = ReplaceHelper.controller
+        if controller is None:
+            return ""
+        if not hasattr(controller, "mode_manager"):
+            return ""
+        return controller.mode_manager.get_active_mode_prompt()
 
     @staticmethod
     def get_agents_md() -> str:
@@ -134,6 +151,8 @@ def replace_variables(text: str) -> str:
         text = text.replace("{TOOLS}", ReplaceHelper.get_tools_json())
     if "{SKILLS}" in text:
         text = text.replace("{SKILLS}", ReplaceHelper.get_skills_catalog())
+    if "{MODEPROMPT}" in text:
+        text = text.replace("{MODEPROMPT}", ReplaceHelper.get_mode_prompt())
     return text
 
 def replace_variables_dict() -> dict:
@@ -147,6 +166,7 @@ def replace_variables_dict() -> dict:
         "{DISPLAY}": ReplaceHelper.gisplay_server(),
         "{TOOLS}": ReplaceHelper.get_tools_json(),
         "{SKILLS}": ReplaceHelper.get_skills_catalog(),
+        "{MODEPROMPT}": ReplaceHelper.get_mode_prompt(),
     }
 
 class PromptFormatter:

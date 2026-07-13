@@ -8,6 +8,7 @@ import copy
 
 from .tools import ToolRegistry, ToolResult
 from .skills import SkillManager
+from .modes import ModeManager
 from .utility.media import get_image_base64, get_image_path, extract_supported_files
 from .utility.message_chunk import get_message_chunks
 
@@ -232,6 +233,10 @@ class NewelleController:
         self.load_extensions()
         self.newelle_settings = NewelleSettings()
         self.newelle_settings.load_settings(self.settings)
+        # Modes: an overlay on top of the active profile that can inject a
+        # mode prompt ({MODEPROMPT}) and force-enable/remove tools & skills.
+        self.mode_manager = ModeManager(self.settings)
+        self.skill_manager.set_mode_overrides(self.mode_manager.get_active_mode()["skills"])
         self.load_chats(self.newelle_settings.chat_id)
         self.handlers = HandlersManager(self.settings, self.extensionloader, self.models_dir, self.integrationsloader, self.installing_handlers, self)
         self.handlers.select_handlers(self.newelle_settings)
@@ -1000,26 +1005,30 @@ class NewelleController:
     
     def get_enabled_tools(self) -> list:
         """Get the list of enabled tools
-        
+
         Returns:
             list[Tool]: List of enabled tools
         """
         enabled_tools = []
         tools_settings = self.newelle_settings.tools_settings_dict
-        
+
         for tool in self.tools.get_all_tools():
             # Check if tool is explicitly enabled/disabled in settings
             is_enabled = tool.default_on
             if tool.name in tools_settings and "enabled" in tools_settings[tool.name]:
                 is_enabled = tools_settings[tool.name]["enabled"]
-            
+
             # Special case: search tool is disabled if websearch is off
             if tool.name == "search" and not self.newelle_settings.websearch_on:
                 is_enabled = False
-            
+
+            # Apply the active Mode's tool override (enable/remove/no_change)
+            if hasattr(self, "mode_manager"):
+                is_enabled = self.mode_manager.resolve_tool_enabled(tool.name, is_enabled)
+
             if is_enabled:
                 enabled_tools.append(tool)
-        
+
         return enabled_tools
         
     def load_extensions(self):
