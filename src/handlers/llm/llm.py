@@ -52,6 +52,45 @@ class LLMHandler(Handler):
             return False
         return enabled
 
+    # -- Optional thinking-effort API ---------------------------------- #
+    # Handlers that expose a discrete set of "thinking"/"reasoning effort"
+    # levels (e.g. low/medium/high) implement these. The default base
+    # implementation returns None, which makes the UI hide the control — so a
+    # handler only opts in by overriding get_thinking_modes().
+    def get_thinking_modes(self) -> list[tuple[str, str]] | None:
+        """Return the supported thinking-effort levels, or None to hide the control.
+
+        Each entry is a ``(value, label)`` tuple, e.g.
+        ``[("low", _("Low")), ("medium", _("Medium")), ("high", _("High"))]``.
+        Returning ``None`` (the default) means the model does not expose a
+        discrete thinking-effort selector and the UI control is hidden.
+        """
+        return None
+
+    def get_thinking_mode(self) -> str:
+        """Return the currently selected thinking-effort value.
+
+        Default implementation persists the selection under the handler's own
+        ``thinking_mode`` setting, so handlers that only implement
+        :meth:`get_thinking_modes` get persistence for free.
+        """
+        modes = self.get_thinking_modes()
+        if not modes:
+            return ""
+        stored = self.get_setting("thinking_mode", search_default=False)
+        if stored is None:
+            return modes[0][0]
+        return stored
+
+    def set_thinking_mode(self, value: str):
+        """Set the thinking-effort value.
+
+        Default implementation stores it under the handler's own
+        ``thinking_mode`` setting. Handlers that map the value to a different
+        request shape can override this and :meth:`get_thinking_mode`.
+        """
+        self.set_setting("thinking_mode", value)
+
     def load_model(self, model):
         """ Load the specified model """
         return True
