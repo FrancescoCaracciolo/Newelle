@@ -3,11 +3,13 @@
 A **Mode** is a named overlay that customizes the assistant's behavior without
 touching the active profile. It is composed of:
 
-- ``prompt``  : free-form text injected into the system prompts via the
+- ``prompt``       : free-form text injected into the system prompts via the
   ``{MODEPROMPT}`` variable (empty string means "nothing to add").
-- ``tools``   : mapping ``tool_name -> state`` describing how each tool is
+- ``description``  : short one-line summary shown in the mode switcher popover.
+- ``icon``         : a GTK symbolic icon name (see ``DEFAULT_MODE_ICON``).
+- ``tools``        : mapping ``tool_name -> state`` describing how each tool is
   affected relative to the current profile.
-- ``skills``  : mapping ``skill_name -> state`` describing how each skill is
+- ``skills``       : mapping ``skill_name -> state`` describing how each skill is
   affected relative to the current profile.
 
 Each tool/skill ``state`` is one of three values:
@@ -20,6 +22,9 @@ Only the infrastructure is provided here; the UI is added separately.
 """
 
 import json
+import gettext
+
+_ = gettext.gettext
 
 # Valid three-state values for tools and skills inside a mode.
 ENABLE = "enable"
@@ -47,11 +52,15 @@ and you will be allowed to execute it."""
 DEFAULT_MODES = {
     "Normal": {
         "prompt": "",
+        "description": _("Standard assistant behavior"),
+        "icon": "user-available-symbolic",
         "tools": {},
         "skills": {},
     },
     "Plan": {
         "prompt": PLAN_MODE_PROMPT,
+        "description": _("Plan first, then act — no side effects"),
+        "icon": "document-edit-symbolic",
         # The command execution tool is removed so the assistant cannot mutate
         # the user's machine while planning.
         "tools": {
@@ -64,6 +73,9 @@ DEFAULT_MODES = {
 # Name of the built-in mode that is always present and cannot be removed.
 DEFAULT_MODE_NAME = "Normal"
 
+# Fallback icon for modes that do not declare one.
+DEFAULT_MODE_ICON = "applications-system-symbolic"
+
 
 class ModeManager:
     """Load, persist, and resolve Modes backed by a ``Gio.Settings`` object.
@@ -72,9 +84,11 @@ class ModeManager:
 
         {
             "<mode_name>": {
-                "prompt": "<str>",
-                "tools":   {"<tool_name>": "<state>", ...},
-                "skills":  {"<skill_name>": "<state>", ...},
+                "prompt":       "<str>",
+                "description":  "<str>",
+                "icon":         "<str>",
+                "tools":        {"<tool_name>": "<state>", ...},
+                "skills":       {"<skill_name>": "<state>", ...},
             },
             ...
         }
@@ -181,12 +195,12 @@ class ModeManager:
         self.active_mode = name
         self.settings.set_string("current-mode", name)
 
-    def create_mode(self, name: str, prompt: str = "", tools: dict | None = None, skills: dict | None = None):
+    def create_mode(self, name: str, prompt: str = "", description: str = "", icon: str = DEFAULT_MODE_ICON, tools: dict | None = None, skills: dict | None = None):
         """Create a new mode. Overwrites an existing mode with the same name."""
-        self.modes[name] = self._build_mode(prompt, tools, skills)
+        self.modes[name] = self._build_mode(prompt, description, icon, tools, skills)
         self._save_modes()
 
-    def update_mode(self, name: str, prompt: str | None = None, tools: dict | None = None, skills: dict | None = None):
+    def update_mode(self, name: str, prompt: str | None = None, description: str | None = None, icon: str | None = None, tools: dict | None = None, skills: dict | None = None):
         """Update fields of an existing mode. Raises ``ValueError`` if unknown.
 
         ``None`` arguments leave the corresponding field untouched.
@@ -196,6 +210,10 @@ class ModeManager:
         mode = self._normalize_mode(self.modes[name])
         if prompt is not None:
             mode["prompt"] = prompt
+        if description is not None:
+            mode["description"] = description
+        if icon is not None:
+            mode["icon"] = icon
         if tools is not None:
             mode["tools"] = self._clean_state_map(tools)
         if skills is not None:
@@ -223,18 +241,26 @@ class ModeManager:
     # Internal helpers
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _build_mode(prompt, tools, skills) -> dict:
+    def _build_mode(prompt, description, icon, tools, skills) -> dict:
         return {
             "prompt": prompt or "",
+            "description": description or "",
+            "icon": icon or DEFAULT_MODE_ICON,
             "tools": ModeManager._clean_state_map(tools or {}),
             "skills": ModeManager._clean_state_map(skills or {}),
         }
 
     @staticmethod
     def _normalize_mode(data: dict) -> dict:
-        """Return a complete, validated mode dict from possibly partial data."""
+        """Return a complete, validated mode dict from possibly partial data.
+
+        Older stored modes (without ``description``/``icon``) are migrated
+        transparently by filling sensible defaults.
+        """
         return {
             "prompt": data.get("prompt", "") or "",
+            "description": data.get("description", "") or "",
+            "icon": data.get("icon", "") or DEFAULT_MODE_ICON,
             "tools": ModeManager._clean_state_map(data.get("tools", {})),
             "skills": ModeManager._clean_state_map(data.get("skills", {})),
         }
