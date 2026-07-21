@@ -228,7 +228,7 @@ class APIInterface(ChatInterface):
                 f"[API chat/completions] routing completion_id={completion_id} model={model_name!r} "
                 f"stream={request.stream} messages={len(request.messages)}"
             )
-
+            history = history[:-1]
             if request.stream:
                 return self._stream_response(llm, completion_id, created, model_name, last_user_message, history, system_prompt)
             else:
