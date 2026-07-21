@@ -22,7 +22,6 @@ from .ui.presentation import PresentationWindow
 from .ui.widgets import File, CopyBox, BarChartBox, MarkupTextView, DocumentReaderWidget, TipsCarousel, BrowserWidget, Terminal, CodeEditorWidget, ToolWidget, CallPanel
 from .ui.explorer import ExplorerPanel
 from .ui.widgets import MultilineEntry, ProfileRow, DisplayLatex, InlineLatex, ThinkingWidget, Message, ChatRow, FolderRow, ChatHistory, ChatTab
-from .ui.widgets.context_indicator import ContextIndicator
 from .ui.stdout_monitor import StdoutMonitorDialog
 from .utility.stdout_capture import StdoutMonitor
 from .constants import AVAILABLE_LLMS, SCHEMA_ID, SETTINGS_GROUPS
@@ -183,9 +182,6 @@ class MainWindow(Adw.ApplicationWindow):
 
         # Header box - Contains the buttons that must go in the left side of the header
         self.headerbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, hexpand=True)
-        # Context usage indicator
-        self.context_indicator = ContextIndicator()
-        self.headerbox.append(self.context_indicator)
         # Mute TTS Button
         self.mute_tts_button = Gtk.Button(
             css_classes=["flat"], icon_name="audio-volume-muted-symbolic", visible=False
@@ -2172,9 +2168,14 @@ class MainWindow(Adw.ApplicationWindow):
             GLib.idle_add(tab.chat_history.update_button_text)
 
     def refresh_context_indicator(self):
-        """Recompute and display context usage for the current chat."""
-        if hasattr(self, 'context_indicator'):
-            t = threading.Thread(target=self.context_indicator.update_from_chat, args=(self.controller,))
+        """Recompute and display context usage for the current chat.
+
+        The indicator now lives per ChatTab (bottom-right of its input box), so
+        target the active tab's instance.
+        """
+        tab = self.get_active_chat_tab()
+        if tab is not None and hasattr(tab, 'context_indicator'):
+            t = threading.Thread(target=tab.context_indicator.update_from_chat, args=(self.controller,))
             t.start()
 
     def update_history(self):

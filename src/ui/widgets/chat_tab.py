@@ -19,6 +19,7 @@ import base64
 from .chat_history import ChatHistory
 from .multiline import MultilineEntry
 from .mode_switcher import ModeButton
+from .context_indicator import ContextIndicator
 from .documents_reader import DocumentReaderWidget
 from .message import Message
 from .. import apply_css_to_widget
@@ -238,6 +239,11 @@ class ChatTab(Gtk.Box):
         self.send_button.set_vexpand(False)
         self.send_button.set_valign(Gtk.Align.CENTER)
         right_cluster.append(self.send_button)
+
+        # Context usage indicator (pie-chart ring), bottom-right corner.
+        self.context_indicator = ContextIndicator()
+        self.context_indicator.set_valign(Gtk.Align.CENTER)
+        right_cluster.append(self.context_indicator)
         actions_row.append(right_cluster)
 
         self.input_box.append(actions_row)
@@ -249,6 +255,12 @@ class ChatTab(Gtk.Box):
 
         self._build_command_popover()
         self.input_panel.input_panel.get_buffer().connect("changed", self._on_input_changed)
+
+        # SHIFT+TAB cycles through Modes while focused in the input box.
+        mode_key_ctrl = Gtk.EventControllerKey.new()
+        mode_key_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        mode_key_ctrl.connect("key-pressed", self._on_mode_cycle_key_pressed)
+        self.input_panel.input_panel.add_controller(mode_key_ctrl)
 
         self.append(self.input_box)
 
@@ -302,6 +314,29 @@ class ChatTab(Gtk.Box):
                 return True
             
         return False
+
+    def _on_mode_cycle_key_pressed(self, controller, keyval, keycode, state):
+        # CTRL+M cycles to the next Mode (forward), wrapping around.
+        if keyval == Gdk.KEY_m and (state & Gdk.ModifierType.CONTROL_MASK):
+            self._cycle_mode()
+            return True
+        return False
+
+    def _cycle_mode(self):
+        """Switch to the next Mode and refresh the mode button + settings."""
+        mm = getattr(self.controller, "mode_manager", None)
+        if mm is None:
+            return
+        name = mm.cycle_mode()
+        # Propagate skill overrides + reload so {MODEPROMPT} and tools update.
+        active = mm.get_active_mode()
+        self.controller.skill_manager.set_mode_overrides(active.get("skills", {}))
+        self.controller.update_settings()
+        if self.mode_button is not None:
+            self.mode_button.refresh()
+        self.notification_block.add_toast(
+            Adw.Toast.new(_("Mode: {0}").format(name))
+        )
 
     def _move_cmd_selection(self, step):
         selected = self._cmd_list.get_selected_row()
@@ -801,8 +836,8 @@ class ChatTab(Gtk.Box):
         self.last_generation_time = data['time']
         self.last_token_num = (data['input_tokens'], data['output_tokens'])
         trim_result = data.get('trim_result')
-        if trim_result is not None and hasattr(self.window, 'context_indicator'):
-            self.window.context_indicator.update_stats(trim_result)
+        if trim_result is not None and hasattr(self, 'context_indicator'):
+            self.context_indicator.update_stats(trim_result)
         
         if hasattr(self, "current_streaming_message") and self.current_streaming_message:
             # Streaming was active, finalize the existing widget

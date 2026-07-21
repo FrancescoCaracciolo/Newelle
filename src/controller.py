@@ -236,6 +236,8 @@ class NewelleController:
         # Modes: an overlay on top of the active profile that can inject a
         # mode prompt ({MODEPROMPT}) and force-enable/remove tools & skills.
         self.mode_manager = ModeManager(self.settings)
+        # Merge any modes contributed by already-loaded extensions.
+        self.extensionloader.add_modes(self.mode_manager)
         self.skill_manager.set_mode_overrides(self.mode_manager.get_active_mode()["skills"])
         self.load_chats(self.newelle_settings.chat_id)
         self.handlers = HandlersManager(self.settings, self.extensionloader, self.models_dir, self.integrationsloader, self.installing_handlers, self)
@@ -915,6 +917,8 @@ class NewelleController:
             self.extensionloader.add_handlers(AVAILABLE_LLMS, AVAILABLE_TTS, AVAILABLE_STT, AVAILABLE_MEMORIES, AVAILABLE_EMBEDDINGS, AVAILABLE_RAGS, AVAILABLE_WEBSEARCH, AVAILABLE_IMAGE_GENERATORS=AVAILABLE_IMAGE_GENERATORS, AVAILABLE_INTERFACES=AVAILABLE_INTERFACES)
             self.extensionloader.add_prompts(PROMPTS, AVAILABLE_PROMPTS)
             self.newelle_settings.load_prompts()
+            if hasattr(self, "mode_manager"):
+                self.extensionloader.add_modes(self.mode_manager)
             self.extensionloader.add_tools(self.tools)
             self.handlers.extensionloader = self.extensionloader
             self.handlers.select_handlers(self.newelle_settings)

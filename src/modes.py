@@ -121,6 +121,31 @@ class ModeManager:
     def _save_modes(self):
         self.settings.set_string("modes", json.dumps(self.modes))
 
+    def add_modes(self, modes: dict):
+        """Merge extension-provided modes into the registry.
+
+        Extension modes are added only when no mode with that name already
+        exists (so user-created modes and built-ins are never clobbered). The
+        merged result is persisted. Each value must be a mode dict (it is
+        normalized via :meth:`_normalize_mode`).
+
+        Args:
+            modes: ``{name: mode_dict}`` mapping from extensions.
+        """
+        if not isinstance(modes, dict):
+            return
+        changed = False
+        for name, data in modes.items():
+            if name in self.modes:
+                continue
+            self.modes[name] = self._normalize_mode(data)
+            changed = True
+        if changed:
+            self._save_modes()
+        # Ensure the active mode is still valid after a merge.
+        if self.active_mode not in self.modes:
+            self.set_active_mode(DEFAULT_MODE_NAME)
+
     def _load_active_mode(self):
         active = self.settings.get_string("current-mode")
         if active not in self.modes:
@@ -194,6 +219,23 @@ class ModeManager:
             raise ValueError(f"Mode '{name}' not found")
         self.active_mode = name
         self.settings.set_string("current-mode", name)
+
+    def cycle_mode(self) -> str:
+        """Advance to the next mode in insertion order and return its name.
+
+        Wraps around after the last mode. No-op (returns the current name) when
+        fewer than two modes exist.
+        """
+        names = list(self.modes.keys())
+        if len(names) < 2:
+            return self.active_mode
+        try:
+            idx = names.index(self.active_mode)
+        except ValueError:
+            idx = -1
+        next_name = names[(idx + 1) % len(names)]
+        self.set_active_mode(next_name)
+        return next_name
 
     def create_mode(self, name: str, prompt: str = "", description: str = "", icon: str = DEFAULT_MODE_ICON, tools: dict | None = None, skills: dict | None = None):
         """Create a new mode. Overwrites an existing mode with the same name."""
