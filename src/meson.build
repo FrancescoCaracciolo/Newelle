@@ -71,6 +71,7 @@ ui_sources = [
   'ui/explorer.py',
   'ui/stdout_monitor.py',
   'ui/model_library.py',
+  'ui/mcp_catalog.py',
   'ui/extra_settings.py',
   'ui/interfaces.py',
 ]
@@ -265,4 +266,3 @@ install_data(interface_sources, install_dir: moduledir / 'handlers' / 'interface
 install_data(utility_sources, install_dir: moduledir / 'utility')
 install_data(integrations_sources, install_dir: moduledir / 'integrations')
 install_data(image_generator_sources, install_dir: moduledir / 'handlers' / 'image_generator')
-

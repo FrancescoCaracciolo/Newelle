@@ -1431,8 +1431,34 @@ class Settings(Adw.PreferencesWindow):
 
     # --- MCP settings ---
 
+    def _open_mcp_application_catalog(self, _button):
+        from .mcp_catalog import ConnectApplicationWindow
+
+        existing_catalog = getattr(self, "mcp_application_catalog", None)
+        if existing_catalog is not None and existing_catalog.get_visible():
+            existing_catalog.present()
+            return
+        self.mcp_application_catalog = ConnectApplicationWindow(
+            parent=self,
+            controller=self.controller,
+            on_connected=self._on_mcp_application_connected,
+        )
+        self.mcp_application_catalog.present()
+
+    def _on_mcp_application_connected(self):
+        self.refresh_mcp_servers_list()
+        self.refresh_tools_list()
+
     def build_mcp_settings(self):
         self.mcp_group = Adw.PreferencesGroup(title=_("MCP Servers"), description=_("Manage Model Context Protocol servers"))
+        connect_application = Gtk.Button(
+            label=_("Connect Application"),
+            valign=Gtk.Align.CENTER,
+            tooltip_text=_("Choose an application from the MCP catalog"),
+        )
+        connect_application.add_css_class("suggested-action")
+        connect_application.connect("clicked", self._open_mcp_application_catalog)
+        self.mcp_group.set_header_suffix(connect_application)
         self.ToolsPage.add(self.mcp_group)
         
         # List of servers

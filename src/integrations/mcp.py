@@ -67,7 +67,8 @@ class MCPIntegration(NewelleExtension):
             "oauth_mode": server.get("oauth_mode", False),
             "command": server.get("command"),
             "args": server.get("args"),
-            "env": server.get("env")
+            "env": server.get("env"),
+            "catalog_id": server.get("catalog_id")
         }
 
     def _get_mcp_url_for_request(self, server_info):
@@ -169,40 +170,60 @@ class MCPIntegration(NewelleExtension):
 
     def add_mcp_server(self, url=None, title=None, bearer_token=None, client_id=None, custom_headers=None,
                        server_type="http", command=None, args=None, env=None, oauth_mode=False):
-        try:
-            if server_type == "stdio":
-                if not command:
-                    return False
-                tools = self.sync_get_tools_stdio(command, args or [], env)
-                server_info = {
-                    "type": "stdio",
-                    "title": title,
-                    "command": command,
-                    "args": args or [],
-                    "env": env
-                }
-            else:
-                if not url:
-                    return False
-                server_info = {
-                    "type": "http",
-                    "url": url,
-                    "title": title,
-                    "bearer_token": bearer_token,
-                    "client_id": client_id,
-                    "custom_headers": custom_headers,
-                    "oauth_mode": oauth_mode
-                }
-                tools = self.sync_get_tools(url, server_info=server_info, client_id=client_id)
-            
-            self.tools.extend(tools)
-            for tool in tools:
-                self.tools_dict[tool.name] = server_info
-            self.ui_controller.require_tool_update()
-        except Exception as e:
-            raise
-        
+        prepared = self.prepare_mcp_server(
+            url=url,
+            title=title,
+            bearer_token=bearer_token,
+            client_id=client_id,
+            custom_headers=custom_headers,
+            server_type=server_type,
+            command=command,
+            args=args,
+            env=env,
+            oauth_mode=oauth_mode,
+        )
+        if prepared is None:
+            return False
+        return self.commit_mcp_server(*prepared)
+
+    def prepare_mcp_server(self, url=None, title=None, bearer_token=None, client_id=None,
+                           custom_headers=None, server_type="http", command=None, args=None,
+                           env=None, oauth_mode=False):
+        """Connect to a server and return its config and tools without mutating state."""
+        if server_type == "stdio":
+            if not command:
+                return None
+            server_info = {
+                "type": "stdio",
+                "title": title,
+                "command": command,
+                "args": args or [],
+                "env": env
+            }
+            tools = self.sync_get_tools_stdio(command, args or [], env)
+        else:
+            if not url:
+                return None
+            server_info = {
+                "type": "http",
+                "url": url,
+                "title": title,
+                "bearer_token": bearer_token,
+                "client_id": client_id,
+                "custom_headers": custom_headers,
+                "oauth_mode": oauth_mode
+            }
+            tools = self.sync_get_tools(url, server_info=server_info, client_id=client_id)
+        return server_info, tools
+
+    def commit_mcp_server(self, server_info, tools):
+        """Add a successfully probed server to the live registry."""
+        self.tools.extend(tools)
+        for tool in tools:
+            self.tools_dict[tool.name] = server_info
         self.mcp_servers.append(server_info)
+        self.ui_controller.require_tool_update()
+        self._save_cache()
         return True
 
     def remove_mcp_server(self, identifier):
@@ -380,7 +401,10 @@ class MCPIntegration(NewelleExtension):
             spawn_args.append(command)
             spawn_args.extend(args)
             return StdioServerParameters(command="flatpak-spawn", args=spawn_args, env=dict(os.environ))
-        return StdioServerParameters(command=command, args=args, env=env)
+        process_env = dict(os.environ)
+        if env and isinstance(env, dict):
+            process_env.update(env)
+        return StdioServerParameters(command=command, args=args, env=process_env)
 
     def sync_get_tools(self, url, headers=None, client_id=None, server_info=None):
         """Synchronous wrapper to get available tools (HTTP)"""
