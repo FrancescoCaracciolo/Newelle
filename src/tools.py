@@ -4,6 +4,8 @@ import threading
 import json
 from gi.repository import GLib
 
+_PENDING_OUTPUT = object()
+
 
 class InteractionOption:
     def __init__(self, title:str, callback) -> None:
@@ -31,22 +33,25 @@ class ToolResult:
 
     def __init__(
         self,
-        output=None,
+        output=_PENDING_OUTPUT,
         widget=None,
         requires_interaction=False,
-        interaction_options: list=[],
+        interaction_options: list | None = None,
         display_text: str | None = None,
         context_messages: list[str] | None = None,
     ) -> None:
-        self.output = output 
+        self.output = None if output is _PENDING_OUTPUT else output
         self.widget = widget
         self.display_text = display_text
         self.context_messages = list(context_messages or [])
         self.is_cancelled = False
         self.requires_interaction = requires_interaction
-        self.output_semaphore = threading.Semaphore()
-        self.output_semaphore.acquire()
-        self.interaction_options = interaction_options
+        self.output_semaphore = threading.Semaphore(0)
+        self._output_lock = threading.Lock()
+        self._output_ready = output is not _PENDING_OUTPUT
+        if self._output_ready:
+            self.output_semaphore.release()
+        self.interaction_options = list(interaction_options or [])
 
     def get_output(self):
         self.output_semaphore.acquire()
@@ -61,12 +66,12 @@ class ToolResult:
         self.widget = widget
     
     def set_output(self, output):
-        self.output = output
-        try:
+        with self._output_lock:
+            self.output = output
+            first_value = not self._output_ready
+            self._output_ready = True
+        if first_value:
             self.output_semaphore.release()
-        except ValueError:
-            # Semaphore already released
-            pass
     
     def set_display_text(self, text:str|None):
         self.display_text = text

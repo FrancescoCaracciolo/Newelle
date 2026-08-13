@@ -11,6 +11,7 @@ from subprocess import Popen
 from gi.repository import Gtk, Adw, Gio, GLib, GObject, Gdk, GtkSource
 
 from ..utility.util import PerformanceMonitor
+from ..utility.agent_loop import DEFAULT_VERIFIER_PROMPT
 
 from ..handlers import Handler
 
@@ -677,6 +678,75 @@ class Settings(Adw.Window):
             r.set_visible(not is_cm)
 
         self.KNOWLEDGE.add(context_expander)
+
+        verifier_expander = Adw.ExpanderRow(
+            title=_("Tool Loop Verifier"),
+            subtitle=_("Check whether long tool runs actually completed their objective"),
+        )
+        verifier_switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        verifier_toggle_row = Adw.ActionRow(
+            title=_("Enable verifier"),
+            subtitle=_("Make one private completion check when a long tool loop tries to finish"),
+        )
+        verifier_toggle_row.add_suffix(verifier_switch)
+        self.settings.bind(
+            "tool-loop-verifier",
+            verifier_switch,
+            "active",
+            Gio.SettingsBindFlags.DEFAULT,
+        )
+        verifier_expander.add_row(verifier_toggle_row)
+
+        threshold_adj = Gtk.Adjustment(
+            lower=1, upper=100, step_increment=1, page_increment=5
+        )
+        threshold_adj.set_value(self.settings.get_int("tool-loop-verifier-threshold"))
+        threshold_row = Adw.SpinRow(
+            title=_("Tool call threshold"),
+            subtitle=_("First finish check runs after this many processed tool calls"),
+            adjustment=threshold_adj,
+            digits=0,
+        )
+        threshold_row.connect(
+            "input",
+            lambda spin, _input: (
+                self.settings.set_int(
+                    "tool-loop-verifier-threshold", int(spin.get_value())
+                ),
+                False,
+            )[1],
+        )
+        verifier_expander.add_row(threshold_row)
+
+        prompt_entry = MultilineEntry(enter_on_ctrl=True)
+        prompt_entry.set_size_request(420, -1)
+        prompt_entry.set_text(self.settings.get_string("tool-loop-verifier-prompt"))
+        prompt_entry.set_on_change(
+            lambda entry: self.settings.set_string(
+                "tool-loop-verifier-prompt", entry.get_text()
+            )
+        )
+        prompt_row = Adw.ActionRow(
+            title=_("Verifier prompt"),
+            subtitle=_("Decision criteria only; the objective and fixed tool protocol are added automatically"),
+        )
+        prompt_row.add_suffix(prompt_entry)
+        verifier_expander.add_row(prompt_row)
+
+        reset_prompt_button = Gtk.Button(label=_("Reset"), valign=Gtk.Align.CENTER)
+        reset_prompt_row = Adw.ActionRow(
+            title=_("Default verifier prompt"),
+            subtitle=_("Restore the built-in completion criteria"),
+        )
+        reset_prompt_row.add_suffix(reset_prompt_button)
+
+        def reset_verifier_prompt(_button):
+            prompt_entry.set_text(DEFAULT_VERIFIER_PROMPT)
+            self.settings.set_string("tool-loop-verifier-prompt", DEFAULT_VERIFIER_PROMPT)
+
+        reset_prompt_button.connect("clicked", reset_verifier_prompt)
+        verifier_expander.add_row(reset_prompt_row)
+        self.KNOWLEDGE.add(verifier_expander)
         # Developer settings
         self.developer = Adw.PreferencesGroup(title=_('Developer'))
         self.general_page.add(self.developer)

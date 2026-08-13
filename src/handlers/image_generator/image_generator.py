@@ -114,7 +114,9 @@ class ImageGeneratorHandler(Handler):
         widget.set_prompt(prompt)
         result = ToolResult()
         result.set_widget(widget)
-        self.generate_and_display(prompt, widget, msg_uuid)
+        self.generate_and_display(
+            prompt, widget, msg_uuid, on_done_callback=lambda: result.set_output(None)
+        )
         return result
 
     def _download_image(self, url: str, path: str, headers: dict = None, timeout: int = 120, verify: bool = True, proxies: dict = None, auth = None, allow_redirects: bool = True) -> str:
@@ -192,7 +194,7 @@ class ImageGeneratorHandler(Handler):
         cached_path = self.cache_path_for(msg_uuid)
         if os.path.exists(cached_path):
             widget.set_image_from_path(cached_path)
-        return ToolResult(widget=widget)
+        return ToolResult(widget=widget, output=None)
 
     def get_tools(self) -> list:
         """Return the list of tools exposed by this handler.

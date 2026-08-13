@@ -1200,9 +1200,14 @@ class Message(Gtk.Box):
         state["id_message"] += 1
         if not restore: self.controller.msgid = state["id_message"]
 
+        tool_call_id = state.get("tool_call_counter", 0)
+        state["tool_call_counter"] = tool_call_id + 1
+        state["has_terminal_command"] = True
+
         group = self._get_tool_group()
         if tool is None:
-            placeholder = self._create_copybox(chunk.text, "tool_call")
+            error_text = f"Error: Tool '{tool_name}' not found"
+            placeholder = ToolWidget(tool_name, chunk.text)
             slot = group.register_call(
                 tool_name,
                 tool_name,
@@ -1214,17 +1219,24 @@ class Message(Gtk.Box):
             slot._compact_order = (self.id_message, slot.entry_id)
             self._place_tool_slot(slot, box)
             group.set_slot_state(slot, "error")
+            placeholder.set_result(False, error_text)
+            if not restore:
+                tool_uuid = str(uuid.uuid4())[:8]
+                state["should_continue"] = True
+                self.controller.append_chat_message(
+                    self._get_chat_tab().chat_id,
+                    {
+                        "User": "Console",
+                        "Message": f"[Tool: {tool_name}, ID: {tool_uuid}]\n{error_text}",
+                    },
+                )
             return slot
-
-        tool_call_id = state.get("tool_call_counter", 0)
-        state["tool_call_counter"] = tool_call_id + 1
 
         if not restore:
             tool_uuid = str(uuid.uuid4())[:8]
         else:
             tool_uuid = self.controller.get_tool_call_uuid(self._get_chat_tab().chat_id, state["id_message"], tool_name, tool_call_id)
 
-        state["has_terminal_command"] = True
         self.controller.current_tool_uuid = tool_uuid
 
         slot = None
@@ -1253,6 +1265,15 @@ class Message(Gtk.Box):
             print(f"Tool error: {e}")
             if slot is not None:
                 group.set_slot_state(slot, "error")
+            if not restore:
+                state["should_continue"] = True
+                self.controller.append_chat_message(
+                    self._get_chat_tab().chat_id,
+                    {
+                        "User": "Console",
+                        "Message": f"[Tool: {tool_name}, ID: {tool_uuid}]\nError: {e}",
+                    },
+                )
             return slot
 
     def _place_tool_slot(self, slot, box):

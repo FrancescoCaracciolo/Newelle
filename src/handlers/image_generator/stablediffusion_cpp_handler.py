@@ -1809,7 +1809,13 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         widget = ImageGeneratorWidget(width=400, height=400)
         widget.set_prompt(prompt)
         result.set_widget(widget)
-        self._edit_and_display(prompt, ref_path, widget, msg_uuid)
+        self._edit_and_display(
+            prompt,
+            ref_path,
+            widget,
+            msg_uuid,
+            on_done_callback=lambda: result.set_output(None),
+        )
         return result
 
     def _edit_image_restore(self, msg_uuid, prompt):
@@ -1824,7 +1830,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         cached_path = self.cache_path_for(msg_uuid)
         if os.path.exists(cached_path):
             widget.set_image_from_path(cached_path)
-        return ToolResult(widget=widget)
+        return ToolResult(widget=widget, output=None)
 
     def _edit_and_display(
         self,
@@ -1832,6 +1838,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         reference_image: str,
         widget,
         msg_uuid: str,
+        on_done_callback=None,
     ):
         """Run image editing in a background thread and update the widget when done.
 
@@ -1852,6 +1859,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 print(f"Image editing failed: {e}")
                 image_source = None
             GLib.idle_add(self._set_image_on_widget, widget, image_source, msg_uuid)
+            if on_done_callback:
+                GLib.idle_add(on_done_callback)
 
         threading.Thread(target=edit).start()
 

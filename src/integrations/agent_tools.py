@@ -51,7 +51,7 @@ class AgentToolsIntegration(NewelleExtension):
         result = ToolResult()
         widget = SubagentWidget(task)
         result.set_widget(widget)
-        self.subagent_results[tool_uuid] = result
+        self.subagent_results[tool_uuid] = None
         
         def run():
             try:
@@ -85,13 +85,14 @@ class AgentToolsIntegration(NewelleExtension):
                         skill_output = skill_manager.activate_skill(skill_name)
                         prompts.append(skill_output)
 
-                expanded_tools = getattr(ctrl, "expanded_tools", None)
+                # Explicitly delegated tools should not need a schema-discovery turn.
+                expanded_tools = {tool.name for tool in sub_registry.get_all_tools()}
                 tools_prompt_json = sub_registry.get_tools_prompt(expanded_tools=expanded_tools)
                 if tools_prompt_json:
                     from ..constants import PROMPTS
                     tools_instruction = PROMPTS.get("tools", "").replace("{TOOLS}", tools_prompt_json)
                     prompts.append(tools_instruction)
-                prompts.append("You MUST call send_result tool at the end of the task. Pass any relevant information to the main agent using the content arguement.")
+                prompts.append("You MUST call the send_result tool at the end of the task. Pass all relevant information to the main agent using its content argument.")
                 chat_id = ctrl.create_call_chat()
 
                 widget.set_status(_("Running…"))
@@ -129,13 +130,14 @@ class AgentToolsIntegration(NewelleExtension):
                     system_prompt=prompts,
                     on_message_callback=on_message,
                     on_tool_result_callback=on_tool_result,
-                    force_tools_on_main_thread=True,
+                    force_tools_on_main_thread=False,
                     tool_registry=sub_registry,
                     skill_manager=skill_manager,
+                    required_terminal_tool="send_result",
                 )
 
                 widget.finish(success=True)
-                if self.subagent_results[tool_uuid] is None:
+                if self.subagent_results.get(tool_uuid) is None:
                     result.set_output(final if final else "".join(last_message))
                 else:
                     result.set_output(self.subagent_results[tool_uuid])
@@ -156,7 +158,7 @@ class AgentToolsIntegration(NewelleExtension):
         r = ToolResult()
         r.set_widget(widget)
         r.set_output(output)
-        return result
+        return r
 
     def _schedule_task(self, task: str, run_at: str = "", cron: str = ""):
         """Schedule a future agent run in a visible chat."""

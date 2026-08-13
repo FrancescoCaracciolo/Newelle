@@ -1168,13 +1168,9 @@ class CallPanel(Gtk.Box):
 
             if self.chat_id is None:
                 self.chat_id = self.controller.create_call_chat()
-            streaming_text = ""
-            def on_message_callback(text):
-                nonlocal streaming_text
-                streaming_text += text
-
             def on_tool_result_callback(tool_name, result):
                 tool_output = result.get_output() if result else "Tool executed"
+                tool_output = "Tool completed." if tool_output is None else str(tool_output)
                 GLib.idle_add(
                     self._add_message_to_history_if_current,
                     call_generation,
@@ -1188,7 +1184,6 @@ class CallPanel(Gtk.Box):
                 response = self.controller.run_llm_with_tools(
                     message=user_message,
                     chat_id=self.chat_id,
-                    on_message_callback=on_message_callback,
                     on_tool_result_callback=on_tool_result_callback,
                     max_tool_calls=5,
                     save_chat=True,

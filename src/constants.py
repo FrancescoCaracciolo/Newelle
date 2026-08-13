@@ -540,6 +540,7 @@ When using a tool, output **only** a single valid JSON object:
 3. Use only the tools listed below and only their defined arguments.
 4. **After invoking a tool, stop generating immediately.** Wait for the result before continuing.
 5. Some tools are shown in **compact form** (only name and description, no `parameters`), marked "(compact: ...)". **You MUST call `tool_search` with the tool name to fetch its schema BEFORE calling the tool itself.** Calling a compact tool directly with guessed or missing arguments is an error and will be rejected.
+6. If more work is required, call the relevant tool in this turn. Never finish by only announcing an action you have not taken.
 
 ## Available Tools
 
@@ -828,7 +829,7 @@ SETTINGS_GROUPS = {
         },
         "general": {
             "title": _("General"),
-            "settings": ["virtualization", "offers", "memory", "remove-thinking", "auto-generate-name", "path", "auto-run", "max-run-times", "parallel-tool-execution", "context-mode", "context-max", "context-suggested", "context-summarization"],
+            "settings": ["virtualization", "offers", "memory", "remove-thinking", "auto-generate-name", "path", "auto-run", "max-run-times", "parallel-tool-execution", "context-mode", "context-max", "context-suggested", "context-summarization", "tool-loop-verifier", "tool-loop-verifier-threshold", "tool-loop-verifier-prompt"],
             "description": _("General settings, virtualization, offers, memory length, automatically generate chat name, current folder..."),
         },
         "prompts": {

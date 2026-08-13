@@ -831,8 +831,8 @@ class ChatHistory(Gtk.Box):
         if not restore:
             self._finalize_message_display()
             self.controller.save_chats()
-            
-        return None
+
+        return message_widget
 
     def _add_skill_message(self, id_message):
         """Display a skill activation as an Assistant message with SkillWidget."""

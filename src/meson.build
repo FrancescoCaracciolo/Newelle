@@ -249,6 +249,7 @@ utility_sources = [
   'utility/profile_settings.py',
   'utility/audio_recorder.py',
   'utility/message_chunk.py',
+  'utility/agent_loop.py',
   'utility/website_scraper.py',
   'utility/stdout_capture.py',
   'utility/wakeword_detector.py',

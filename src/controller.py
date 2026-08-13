@@ -10,7 +10,14 @@ from .tools import Tool, ToolRegistry, ToolResult
 from .skills import SkillManager
 from .modes import ModeManager
 from .utility.media import chat_contains_vision, get_image_base64, get_image_path, extract_supported_files
-from .utility.message_chunk import get_message_chunks
+from .utility.agent_loop import (
+    CompletionVerificationState,
+    CONTINUATION_PROMPT,
+    EMPTY_RECOVERY_PROMPT,
+    TERMINAL_RECOVERY_PROMPT,
+    parse_agent_turn,
+    verify_completion,
+)
 
 from .extensions import NewelleExtension
 from .handlers.llm import LLMHandler
@@ -29,6 +36,7 @@ from .utility.profile_settings import get_settings_dict_by_groups
 from .utility.source_attribution import format_source_context
 from .constants import AVAILABLE_INTEGRATIONS, AVAILABLE_WEBSEARCH, AVAILABLE_IMAGE_GENERATORS, DIR_NAME, SCHEMA_ID, PROMPTS, AVAILABLE_STT, AVAILABLE_TTS, AVAILABLE_LLMS, AVAILABLE_RAGS, AVAILABLE_PROMPTS, AVAILABLE_MEMORIES, AVAILABLE_EMBEDDINGS, AVAILABLE_INTERFACES, SETTINGS_GROUPS, restore_handlers, restore_prompts
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import pickle
 import tempfile
 import json
@@ -1543,6 +1551,7 @@ class NewelleController:
         history: list[dict[str, str]],
         prompts: list[str],
         current_message: str,
+        allow_summarization: bool = True,
     ) -> tuple[list[dict[str, str]], TrimResult | None]:
         """Trim history using the ContextManager when context-manager mode is active.
 
@@ -1564,7 +1573,9 @@ class NewelleController:
             suggested_tokens=self.newelle_settings.context_suggested,
             embedding_handler=embedding,
             llm_handler=llm,
-            summarization_enabled=self.newelle_settings.context_summarization,
+            summarization_enabled=(
+                self.newelle_settings.context_summarization and allow_summarization
+            ),
         )
         result = cm.trim(history, prompts_token_count, current_message)
         self.last_trim_result = result
@@ -1720,7 +1731,14 @@ class NewelleController:
         return prompts, history, old_history, old_user_prompt, chat, effective_chat_id
 
 
-    def generate_response(self, stream_number_variable, update_callback, chat_id=None):
+    def generate_response(
+        self,
+        stream_number_variable,
+        update_callback,
+        chat_id=None,
+        prompt_override: str | None = None,
+        prepared_prompts: list[str] | None = None,
+    ):
         """
         Generator for the response.
         Yields (status, data) tuples.
@@ -1731,7 +1749,29 @@ class NewelleController:
             update_callback: Callback for streaming updates
             chat_id: Optional chat ID to use. If None, uses current chat_id from settings.
         """
-        prompts, history, old_history, old_user_prompt, chat, effective_chat_id = self.prepare_generation(chat_id=chat_id)
+        if prepared_prompts is None:
+            prompts, history, old_history, old_user_prompt, chat, effective_chat_id = self.prepare_generation(chat_id=chat_id)
+        else:
+            effective_chat_id = chat_id if chat_id is not None else self.newelle_settings.chat_id
+            if not self.chats or effective_chat_id not in self.chats:
+                prompts = None
+                history = old_history = chat = None
+                old_user_prompt = ""
+            else:
+                chat = self.get_chat_by_id(effective_chat_id)
+                prompts = list(prepared_prompts)
+                old_user_prompt = chat[-1]["Message"] if chat else ""
+                history = self.get_history(
+                    chat=chat,
+                    include_last_message=(prompt_override is not None),
+                )
+                history, _ = self._trim_context(
+                    history,
+                    prompts,
+                    prompt_override or old_user_prompt,
+                    allow_summarization=False,
+                )
+                old_history = copy.deepcopy(history)
 
         # Handle invalid chat_id
         if prompts is None:
@@ -1739,7 +1779,8 @@ class NewelleController:
             return
         
         # Check for edited messages
-        new_history = self.get_history(chat=chat)
+        # The history above was prepared and trimmed exactly once for this turn.
+        new_history = history
         edited_messages = get_edited_messages(new_history, old_history)
         
         if edited_messages is None:
@@ -1753,7 +1794,7 @@ class NewelleController:
             yield ('done', None)
             return
 
-        if chat[-1]["Message"] != old_user_prompt:
+        if prompt_override is None and chat[-1]["Message"] != old_user_prompt:
              yield ('reload_message', len(chat) - 1)
 
         
@@ -1761,16 +1802,36 @@ class NewelleController:
         try:
             t1 = time.time()
             model = self.get_model_for_chat(chat)
-            if model.stream_enabled():
-                message_label = model.send_message_stream(
-                    chat[-1]["Message"],
-                    new_history,
-                    prompts,
-                    update_callback,
-                    [stream_number_variable], 
-                )
-            else:
-                message_label = model.send_message(chat[-1]["Message"], new_history, prompts)
+            generation_prompt = prompt_override or chat[-1]["Message"]
+            last_stream_update = ""
+            for attempt in range(2):
+                last_stream_update = ""
+
+                def safe_update(text, *args):
+                    nonlocal last_stream_update
+                    last_stream_update = text
+                    return update_callback(text, *args)
+
+                try:
+                    if model.stream_enabled():
+                        message_label = model.send_message_stream(
+                            generation_prompt,
+                            copy.deepcopy(new_history),
+                            copy.deepcopy(prompts),
+                            safe_update,
+                            [stream_number_variable],
+                        )
+                    else:
+                        message_label = model.send_message(
+                            generation_prompt,
+                            copy.deepcopy(new_history),
+                            copy.deepcopy(prompts),
+                        )
+                    break
+                except Exception:
+                    if attempt == 0 and parse_agent_turn(last_stream_update).is_empty:
+                        continue
+                    raise
             
             # Post-generation logic
             last_generation_time = time.time() - t1
@@ -1780,7 +1841,7 @@ class NewelleController:
                 input_tokens += count_tokens(prompt)
             for message in new_history:
                 input_tokens += count_tokens(message.get("User", "")) + count_tokens(message.get("Message", ""))
-            input_tokens += count_tokens(chat[-1]["Message"])
+            input_tokens += count_tokens(generation_prompt)
             
             output_tokens = count_tokens(message_label)
             
@@ -1807,12 +1868,10 @@ class NewelleController:
              for message in edited_messages:
                  yield ('reload_message', message)
 
-        # Update memory
-        self.update_memory(message_label, chat=chat)
-        
         # Return final message and tokens
         yield ('finished', {
             'message': message_label,
+            'model': model,
             'prompts': prompts,
             'input_tokens': input_tokens,
             'output_tokens': output_tokens,
@@ -1833,29 +1892,15 @@ class NewelleController:
         tool_registry: ToolRegistry | None = None,
         skill_manager: SkillManager | None = None,
         extension_processing: bool = True,
+        required_terminal_tool: str | None = None,
     ) -> str:
-        """Run LLM with tool support integration.
+        """Run a bounded, provider-neutral LLM tool loop.
 
-        Args:
-            message: The user message to send
-            history: Chat history (uses current chat if None)
-            system_prompt: System prompts (uses prepared prompts if None)
-            on_message_callback: Callback for streaming message updates
-            on_tool_result_callback: Callback for tool results, receives (tool_name, ToolResult)
-            max_tool_calls: Maximum number of tool calls to execute (prevents infinite loops)
-            chat_id: Chat ID to use (uses current if None)
-            save_chat: If True, assistant messages are added to chat history
-            force_tools_on_main_thread: If True, execute tool calls on the GTK main thread.
-            tool_registry: Optional tool registry to use for this run instead of the controller registry.
-            skill_manager: Optional skill manager to bind for this run, used by skill-related tools.
-            extension_processing: If True, run extension/integration preprocess_history and
-                postprocess_history hooks on the history and final response, mirroring
-                generate_response. Set to False to bypass extension processing.
-
-        Returns:
-            Final message from the LLM
+        Provider handlers keep their existing string response contract.  Tool
+        calls, completion checks, retry state, and budgets are local to this
+        invocation so concurrent chats cannot contaminate each other.
         """
-        active_tool_registry = tool_registry if tool_registry is not None else self.tools
+        active_registry = tool_registry if tool_registry is not None else self.tools
         active_skill_manager = skill_manager if skill_manager is not None else getattr(self, "skill_manager", None)
         skills_integration = None
         original_skill_manager = None
@@ -1865,294 +1910,391 @@ class NewelleController:
                 original_skill_manager = getattr(skills_integration, "skill_manager", None)
                 skills_integration.set_skill_manager(active_skill_manager)
 
+        max_tool_calls = max(0, int(max_tool_calls))
+        run_expanded_tools = self.expanded_tools if tool_registry is None else {
+            tool.name for tool in active_registry.get_all_tools()
+        }
         msg_uuid = int(uuid_lib.uuid4())
-        self.chats[chat_id]["chat"].append({"User": "User", "Message": message, "UUID": msg_uuid})
+        canonical_chat = self.chats[chat_id]["chat"]
+        canonical_chat.append({"User": "User", "Message": message, "UUID": msg_uuid})
+        current_profile = getattr(self.newelle_settings, "current_profile", "Assistant")
+        self.chats[chat_id]["profile"] = current_profile
         if save_chat:
             self.save_chats()
-        history = self.get_history(chat=self.chats[chat_id]["chat"], include_last_message=True)
-        system_prompt_was_built = system_prompt is None
-        if system_prompt is None:
-            _, _, _, _, _, effective_chat_id = self.prepare_generation(chat_id=chat_id)
-            system_prompt = self._build_tool_system_prompt(effective_chat_id)
-        
-        # Avoid history duplication: check the last entry is the current message.
-        last_entry_is_current = bool(
-            history
-            and history[-1].get("User") == "User"
-            and history[-1].get("Message") == message
+
+        built_prompt = system_prompt is None
+        prompts = (
+            list(system_prompt)
+            if system_prompt is not None
+            else self._build_tool_system_prompt(chat_id)
         )
-        current_history = history.copy()
-        # Let extensions/integrations preprocess the history and prompts before
-        # generation, mirroring generate_response. Only runs when a fresh
-        # system_prompt was built above; an explicit system_prompt means the
-        # caller took full control of the prompts.
-        if extension_processing and system_prompt_was_built:
-            current_history, system_prompt = self.integrationsloader.preprocess_history(current_history, system_prompt)
-            current_history, system_prompt = self.extensionloader.preprocess_history(current_history, system_prompt)
+        current_history = self.get_history(chat=canonical_chat, include_last_message=True)
+        if extension_processing and built_prompt:
+            current_history, prompts = self.integrationsloader.preprocess_history(current_history, prompts)
+            current_history, prompts = self.extensionloader.preprocess_history(current_history, prompts)
 
-        # Avoid history duplication without removing the message from the
-        # canonical working history. Later tool iterations still need the
-        # original user request and every preceding tool result.
-        current_prompt = message
-        current_prompt_index = None
-        if last_entry_is_current and current_history:
-            current_prompt_index = len(current_history) - 1
-            current_prompt = current_history[current_prompt_index].get("Message") or message
-
+        settings = self.newelle_settings
+        verification = CompletionVerificationState(
+            enabled=bool(getattr(settings, "tool_loop_verifier", True)),
+            threshold=int(getattr(settings, "tool_loop_verifier_threshold", 5)),
+        )
+        verifier_prompt = getattr(settings, "tool_loop_verifier_prompt", "")
+        tool_trace: list[dict[str, Any]] = []
+        model = self.get_model_for_chat(canonical_chat)
         mode_manager = getattr(self, "mode_manager", None)
-        active_mode_name = (
-            mode_manager.get_active_mode_name()
-            if mode_manager is not None
-            else None
+        active_mode_name = mode_manager.get_active_mode_name() if mode_manager else None
+        executed_tool_calls = 0
+        empty_recovered = False
+        terminal_recovered = False
+        best_visible = ""
+        next_prompt = message
+        next_prompt_index = next(
+            (
+                i for i in range(len(current_history) - 1, -1, -1)
+                if current_history[i].get("User") == "User"
+                and current_history[i].get("Message") == message
+            ),
+            None,
         )
-        model = self.get_model_for_chat(self.chats[chat_id]["chat"])
-        cont = True
-        try:
-            for iteration in range(max_tool_calls):
-                full_response = ""
-                if not cont:
-                    break
-                cont = False
+        tools_exhausted = max_tool_calls == 0
+        max_generations = max_tool_calls + 4
 
-                # ``switch_mode`` updates the controller while this method is
-                # still running. Refresh every mode-derived snapshot before the
-                # follow-up model call, but keep ``current_history`` intact so
-                # the model receives the switch result and all earlier results.
-                current_mode_name = (
-                    mode_manager.get_active_mode_name()
-                    if mode_manager is not None
-                    else None
-                )
-                if current_mode_name != active_mode_name:
-                    active_mode_name = current_mode_name
-                    if system_prompt_was_built:
-                        system_prompt = self._build_tool_system_prompt(chat_id)
-                        if extension_processing:
-                            # Extensions can add prompt context based on history.
-                            # Give them a deep copy because this pass is only meant
-                            # to rebuild prompts, not process the history twice.
-                            prompt_history = copy.deepcopy(current_history)
-                            prompt_history, system_prompt = self.integrationsloader.preprocess_history(
-                                prompt_history, system_prompt
-                            )
-                            prompt_history, system_prompt = self.extensionloader.preprocess_history(
-                                prompt_history, system_prompt
-                            )
-                    if tool_registry is None:
-                        active_tool_registry = self.tools
-                    model = self.get_model_for_chat(self.chats[chat_id]["chat"])
+        def without_tools(values: list[str]) -> list[str]:
+            return [re.sub(r"<tools>.*?</tools>", "", value, flags=re.DOTALL) for value in values]
 
-                def stream_callback(text: str):
-                    nonlocal full_response
-                    full_response += text
-                    if on_message_callback:
-                        on_message_callback(text)
-                
-                # Each handler appends ``prompt`` to the history it receives.
-                # Remove that prompt only from this request-local copy; mutating
-                # ``current_history`` here would corrupt subsequent tool turns.
-                request_history = current_history.copy()
-                if iteration == 0:
-                    prompt = current_prompt
-                    if current_prompt_index is not None:
-                        request_history.pop(current_prompt_index)
-                else:
-                    prompt = ""
-                    if (
-                        request_history
-                        and request_history[-1].get("ToolContext")
-                    ):
-                        prompt = request_history.pop()["Message"]
-                    else:
-                        for i in range(len(request_history) - 1, -1, -1):
-                            if request_history[i]["User"] == "Console":
-                                prompt = request_history.pop(i)["Message"]
-                                break
+        def safe_callback(tool_name: str, result: ToolResult) -> None:
+            if on_tool_result_callback:
+                try:
+                    on_tool_result_callback(tool_name, result)
+                except Exception as exc:
+                    print(f"Tool result callback failed: {exc}")
 
-                send_history, _ = self._trim_context(request_history, system_prompt, message)
-
-                if model.stream_enabled():
-                    response = model.send_message_stream(
-                        prompt,
-                        send_history,
-                        system_prompt,
-                        stream_callback
-                    )
-                else:
-                    response = model.send_message(
-                        prompt,
-                        send_history,
-                        system_prompt
-                    )
-                    if on_message_callback:
-                        on_message_callback(response)
-                
-                chunks = get_message_chunks(response)
-                
-                text_content = ""
-                tool_calls = []
-                
-                for chunk in chunks:
-                    if chunk.type == "tool_call":
-                        tool_calls.append({"name": chunk.tool_name, "args": chunk.tool_args})
-                    elif chunk.type in ("text", "markdown"):
-                        text_content += "\n" + chunk.text
-
-                # Some streaming handlers throttle their callbacks and can
-                # leave the final character or provider chunk unreported.
-                # Flush the complete cumulative response once generation is
-                # done. Consumers already de-duplicate cumulative updates.
-                if model.stream_enabled() and not tool_calls and on_message_callback:
-                    on_message_callback(response)
-                
-                if not tool_calls:
-                    msg_uuid = int(uuid_lib.uuid4())
-                    current_history.append({"User": "Assistant", "Message": text_content, "UUID": msg_uuid})
-                    if save_chat:
-                        self.chats[chat_id]["chat"].append({"User": "Assistant", "Message": response, "UUID": msg_uuid, "Profile": self.newelle_settings.current_profile})
-                        self.save_chats()
-                    # Let extensions/integrations postprocess the final response,
-                    # mirroring generate_response.
-                    if extension_processing:
-                        final_message = text_content
-                        chat_list, final_message = self.integrationsloader.postprocess_history(self.chats[chat_id]["chat"], final_message)
-                        chat_list, final_message = self.extensionloader.postprocess_history(chat_list, final_message)
-                        if save_chat:
-                            self.set_chat_by_id(chat_id, chat_list)
-                            self.save_chats()
-                        return final_message
-                    return text_content
-                assistant_msg_uuid = int(uuid_lib.uuid4())
-                
-                for tool_call in tool_calls:
-                    tool_name = tool_call["name"]
-                    tool_args = tool_call["args"]
-                    tool_uuid = str(uuid_lib.uuid4())[:8]
-                    tool_context_messages = []
-                    tool_display_text = None
-
-                    # Lazy loading: a tool_search call means the model just fetched
-                    # a tool's schema. Expand it in the system prompt so that, on the
-                    # next turn, the tool carries its real parameters and can be
-                    # invoked through native tool calling too.
-                    if (
-                        tool_name == "tool_search"
-                        and isinstance(tool_args, dict)
-                        and tool_args.get("tool_name")
-                    ):
-                        system_prompt = active_tool_registry.expand_tool_in_prompts(
-                            system_prompt, tool_args["tool_name"]
-                        )
-
-                    try:
-                        tool = active_tool_registry.get_tool(tool_name)
-                        if tool is None:
-                            raise ValueError(f"Tool '{tool_name}' not found")
-
-                        # Lazy loading guard: if a lazy tool is called before its
-                        # schema was fetched, hand back the schema instead of
-                        # running it with guessed arguments, and mark it expanded.
-                        redirect = active_tool_registry.maybe_redirect_lazy_tool(
-                            tool_name, self.newelle_settings.tools_settings_dict, self.expanded_tools
-                        )
-                        if redirect is not None:
-                            # Native tool calling needs the full schema next turn.
-                            system_prompt = active_tool_registry.expand_tool_in_prompts(
-                                system_prompt, tool_name
-                            )
-                            if on_tool_result_callback:
-                                on_tool_result_callback(tool_name, redirect)
-                            tool_result_output = redirect.get_output()
-                            if tool_result_output is not None:
-                                cont = True
-                        else:
-                            tool_kwargs = {"msg_uuid": msg_uuid, "tool_uuid": tool_uuid, "chat_id": chat_id, **tool_args}
-                            should_run_on_main_thread = (
-                                force_tools_on_main_thread or tool.run_on_main_thread
-                            )
-
-                            if should_run_on_main_thread:
-                                result = self.execute_tool_on_main_thread(
-                                    tool_name,
-                                    tool_kwargs,
-                                    tool_registry=active_tool_registry,
-                                )
-                            else:
-                                result = tool.execute(**tool_kwargs)
-                            if isinstance(result, ToolResult):
-                                if on_tool_result_callback:
-                                    on_tool_result_callback(tool_name, result)
-                                tool_result_output = result.get_output()
-                                tool_context_messages = result.get_context_messages()
-                                tool_display_text = getattr(result, "display_text", None)
-                                if tool_result_output is not None or tool_context_messages:
-                                    cont = True
-                    except Exception as e:
-                        tool_result_output = f"Error: {str(e)}"
-                        tool_display_text = None
-                        if on_tool_result_callback:
-                            tr = ToolResult(output=tool_result_output)
-                            on_tool_result_callback(tool_name, tr)
-
-
-                    tool_call_msg = f"```json\n{{\"name\": \"{tool_name}\", \"arguments\": {json.dumps(tool_args)}}}\n```"
-                    console_output = tool_result_output
-                    if console_output is None and tool_context_messages:
-                        console_output = "Tool returned additional context."
-                    tool_result_msg = f"[Tool: {tool_name}, ID: {tool_uuid}]\n{console_output}"
-                    if tool_display_text:
-                        tool_result_msg = tool_result_msg + "\n" + tool_display_text
-                    
-                    current_history.append({
-                        "User": "Assistant",
-                        "Message": tool_call_msg,
-                        "UUID": assistant_msg_uuid
-                    })
-                    current_history.append({
-                        "User": "Console",
-                        "Message": tool_result_msg,
-                        "UUID": tool_uuid
-                    })
-                    for context_message in tool_context_messages:
-                        current_history.append({
-                            "User": "User",
-                            "Message": context_message,
-                            "ToolContext": True,
-                        })
-                    if save_chat:
-                        self.chats[chat_id]["chat"].append({
-                            "User": "Assistant",
-                            "Message": tool_call_msg,
-                            "UUID": assistant_msg_uuid,
-                            "Profile": self.newelle_settings.current_profile
-                        })
-                        self.chats[chat_id]["chat"].append({
-                            "User": "Console",
-                            "Message": tool_result_msg,
-                        })
-                        for context_message in tool_context_messages:
-                            self.chats[chat_id]["chat"].append({
-                                "User": "User",
-                                "Message": context_message,
-                                "ToolContext": True,
-                            })
-                        self.save_chats()
-            
-            if save_chat:
-                msg_uuid = int(uuid_lib.uuid4())
-                self.chats[chat_id]["chat"].append({"User": "Assistant", "Message": text_content, "UUID": msg_uuid, "Profile": self.newelle_settings.current_profile})
-                self.save_chats()
-            # Let extensions/integrations postprocess the final response,
-            # mirroring generate_response.
+        def finish(final_message: str, warning: str | None = None) -> str:
+            if warning:
+                final_message = (final_message.rstrip() + "\n\n" + warning).strip()
             if extension_processing:
-                final_message = text_content
-                chat_list, final_message = self.integrationsloader.postprocess_history(self.chats[chat_id]["chat"], final_message)
-                chat_list, final_message = self.extensionloader.postprocess_history(chat_list, final_message)
+                chat_list, final_message = self.integrationsloader.postprocess_history(
+                    canonical_chat, final_message
+                )
+                chat_list, final_message = self.extensionloader.postprocess_history(
+                    chat_list, final_message
+                )
                 if save_chat:
                     self.set_chat_by_id(chat_id, chat_list)
+            if save_chat:
+                self.chats[chat_id]["chat"].append(
+                    {
+                        "User": "Assistant",
+                        "Message": final_message,
+                        "UUID": int(uuid_lib.uuid4()),
+                        "Profile": current_profile,
+                    }
+                )
+                self.save_chats()
+                self.update_memory(final_message, chat=self.chats[chat_id]["chat"])
+            return final_message
+
+        try:
+            for generation_index in range(max_generations):
+                current_mode_name = mode_manager.get_active_mode_name() if mode_manager else None
+                if current_mode_name != active_mode_name:
+                    active_mode_name = current_mode_name
+                    if built_prompt:
+                        prompts = self._build_tool_system_prompt(chat_id)
+                        if extension_processing:
+                            prompt_history = copy.deepcopy(current_history)
+                            prompt_history, prompts = self.integrationsloader.preprocess_history(
+                                prompt_history, prompts
+                            )
+                            prompt_history, prompts = self.extensionloader.preprocess_history(
+                                prompt_history, prompts
+                            )
+                    if tool_registry is None:
+                        active_registry = self.tools
+                    model = self.get_model_for_chat(canonical_chat)
+
+                request_history = copy.deepcopy(current_history)
+                if next_prompt_index is not None and next_prompt_index < len(request_history):
+                    request_history.pop(next_prompt_index)
+                request_prompts = without_tools(prompts) if tools_exhausted else list(prompts)
+                try:
+                    send_history, _ = self._trim_context(
+                        request_history,
+                        request_prompts,
+                        message,
+                        allow_summarization=(generation_index == 0),
+                    )
+                except TypeError as exc:
+                    # Keep compatibility with tests and extensions that replace
+                    # this internal helper with its historical three-argument form.
+                    if "allow_summarization" not in str(exc):
+                        raise
+                    send_history, _ = self._trim_context(
+                        request_history, request_prompts, message
+                    )
+
+                response = ""
+                last_stream_update = ""
+                for attempt in range(2):
+                    last_stream_update = ""
+
+                    def stream_callback(text: str):
+                        nonlocal last_stream_update
+                        last_stream_update = text
+                        if on_message_callback:
+                            on_message_callback(text)
+
+                    try:
+                        if model.stream_enabled():
+                            response = model.send_message_stream(
+                                next_prompt,
+                                copy.deepcopy(send_history),
+                                copy.deepcopy(request_prompts),
+                                stream_callback,
+                            )
+                        else:
+                            response = model.send_message(
+                                next_prompt,
+                                copy.deepcopy(send_history),
+                                copy.deepcopy(request_prompts),
+                            )
+                            if on_message_callback:
+                                on_message_callback(response)
+                        break
+                    except Exception:
+                        partial_turn = parse_agent_turn(last_stream_update)
+                        if attempt == 0 and partial_turn.is_empty:
+                            continue
+                        raise
+
+                turn = parse_agent_turn(response)
+                if (
+                    model.stream_enabled()
+                    and on_message_callback
+                    and response != last_stream_update
+                ):
+                    on_message_callback(response)
+
+                if turn.visible_content.strip():
+                    best_visible = turn.visible_content
+
+                if not turn.tool_calls:
+                    if turn.is_empty:
+                        if empty_recovered:
+                            return finish(
+                                best_visible,
+                                "[Warning: the agent produced no visible response or tool call after recovery.]",
+                            )
+                        empty_recovered = True
+                        current_history.append(
+                            {"User": "Assistant", "Message": response, "UUID": int(uuid_lib.uuid4())}
+                        )
+                        next_prompt = EMPTY_RECOVERY_PROMPT
+                        next_prompt_index = None
+                        continue
+
+                    if required_terminal_tool:
+                        if terminal_recovered:
+                            return finish(
+                                turn.visible_content or best_visible,
+                                f"[Warning: the agent did not call required terminal tool '{required_terminal_tool}'.]",
+                            )
+                        terminal_recovered = True
+                        current_history.append(
+                            {"User": "Assistant", "Message": turn.visible_content, "UUID": int(uuid_lib.uuid4())}
+                        )
+                        next_prompt = TERMINAL_RECOVERY_PROMPT.format(
+                            tool_name=required_terminal_tool
+                        )
+                        next_prompt_index = None
+                        continue
+
+                    candidate = turn.visible_content
+                    if (
+                        not tools_exhausted
+                        and verification.should_verify()
+                        and verify_completion(
+                            model,
+                            message,
+                            tool_trace,
+                            candidate,
+                            verifier_prompt,
+                        )
+                    ):
+                        verification.mark_continued()
+                        current_history.append(
+                            {"User": "Assistant", "Message": candidate, "UUID": int(uuid_lib.uuid4())}
+                        )
+                        next_prompt = CONTINUATION_PROMPT
+                        next_prompt_index = None
+                        continue
+                    return finish(candidate)
+
+                if tools_exhausted:
+                    return finish(
+                        best_visible,
+                        "[Warning: the agent requested another tool after reaching the tool-call limit.]",
+                    )
+
+                calls = list(turn.tool_calls)
+                verification.record_tools(len(calls))
+                remaining = max_tool_calls - executed_tool_calls
+                allowed_count = min(len(calls), max(0, remaining))
+                executed_tool_calls += allowed_count
+                assistant_uuid = int(uuid_lib.uuid4())
+                prepared = []
+
+                for index, call in enumerate(calls):
+                    tool_uuid = str(uuid_lib.uuid4())[:8]
+                    precomputed = None
+                    tool = None
+                    if index >= allowed_count:
+                        precomputed = ToolResult(
+                            output="Error: tool-call limit reached; provide the best final answer without more tools."
+                        )
+                    else:
+                        tool = active_registry.get_tool(call.name)
+                        if tool is None:
+                            precomputed = ToolResult(output=f"Error: Tool '{call.name}' not found")
+                        else:
+                            redirect = active_registry.maybe_redirect_lazy_tool(
+                                call.name,
+                                getattr(settings, "tools_settings_dict", {}),
+                                run_expanded_tools,
+                            )
+                            if redirect is not None:
+                                precomputed = redirect
+                                prompts = active_registry.expand_tool_in_prompts(
+                                    prompts, call.name
+                                )
+                    if call.name == "tool_search" and call.arguments.get("tool_name"):
+                        prompts = active_registry.expand_tool_in_prompts(
+                            prompts, call.arguments["tool_name"]
+                        )
+                    prepared.append((call, tool_uuid, tool, precomputed))
+
+                def execute_prepared(item):
+                    call, tool_uuid, tool, precomputed = item
+                    failed = False
+                    try:
+                        if precomputed is not None:
+                            result = precomputed
+                        else:
+                            kwargs = {
+                                "msg_uuid": msg_uuid,
+                                "tool_uuid": tool_uuid,
+                                "chat_id": chat_id,
+                                **call.arguments,
+                            }
+                            if force_tools_on_main_thread or tool.run_on_main_thread:
+                                result = self.execute_tool_on_main_thread(
+                                    call.name, kwargs, tool_registry=active_registry
+                                )
+                            else:
+                                result = tool.execute(**kwargs)
+                            if not isinstance(result, ToolResult):
+                                result = ToolResult(output=result)
+                    except Exception as exc:
+                        failed = True
+                        result = ToolResult(output=f"Error: {exc}")
+                    safe_callback(call.name, result)
+                    try:
+                        output = result.get_output()
+                        contexts = result.get_context_messages()
+                        display_text = getattr(result, "display_text", None)
+                    except Exception as exc:
+                        failed = True
+                        output = f"Error: {exc}"
+                        contexts = []
+                        display_text = None
+                    if isinstance(output, str) and output.startswith("Error:"):
+                        failed = True
+                    return call, tool_uuid, output, contexts, display_text, failed
+
+                if getattr(settings, "parallel_tool_execution", False) and len(prepared) > 1:
+                    with ThreadPoolExecutor(max_workers=min(len(prepared), 32)) as pool:
+                        futures = [pool.submit(execute_prepared, item) for item in prepared]
+                        results = [future.result() for future in futures]
+                else:
+                    results = [execute_prepared(item) for item in prepared]
+
+                should_continue = False
+                terminal_tool_seen = False
+                persisted_messages = []
+                next_prompt = ""
+                next_prompt_index = None
+                for call, tool_uuid, output, contexts, display_text, failed in results:
+                    output_for_model = output
+                    if output_for_model is None and contexts:
+                        output_for_model = "Tool returned additional context."
+                    call_message = (
+                        "```json\n"
+                        + json.dumps(
+                            {"name": call.name, "arguments": call.arguments},
+                            ensure_ascii=False,
+                        )
+                        + "\n```"
+                    )
+                    result_message = f"[Tool: {call.name}, ID: {tool_uuid}]\n{output_for_model}"
+                    if display_text:
+                        result_message += "\n" + display_text
+                    current_history.append(
+                        {"User": "Assistant", "Message": call_message, "UUID": assistant_uuid}
+                    )
+                    current_history.append(
+                        {"User": "Console", "Message": result_message, "UUID": tool_uuid}
+                    )
+                    next_prompt = result_message
+                    next_prompt_index = len(current_history) - 1
+                    for context_message in contexts:
+                        current_history.append(
+                            {"User": "User", "Message": context_message, "ToolContext": True}
+                        )
+                        next_prompt = context_message
+                        next_prompt_index = len(current_history) - 1
+                    tool_trace.append(
+                        {"name": call.name, "arguments": call.arguments, "result": output_for_model}
+                    )
+                    if failed or output is not None or contexts:
+                        should_continue = True
+                    elif required_terminal_tool and call.name == required_terminal_tool:
+                        terminal_tool_seen = True
+                    persisted_messages.extend(
+                        [
+                            {
+                                "User": "Assistant",
+                                "Message": call_message,
+                                "UUID": assistant_uuid,
+                                "Profile": current_profile,
+                            },
+                            {"User": "Console", "Message": result_message},
+                        ]
+                    )
+                    persisted_messages.extend(
+                        {"User": "User", "Message": value, "ToolContext": True}
+                        for value in contexts
+                    )
+
+                if save_chat:
+                    canonical_chat.extend(persisted_messages)
                     self.save_chats()
-                return final_message
-            return text_content
+                if required_terminal_tool and terminal_tool_seen:
+                    return finish(best_visible)
+                if not should_continue:
+                    return finish(best_visible)
+                if executed_tool_calls >= max_tool_calls:
+                    tools_exhausted = True
+                    next_prompt = (
+                        next_prompt
+                        + "\n\nThe tool-call limit is now reached. Do not call another tool; "
+                        "provide the best final answer."
+                    )
+                    next_prompt_index = None
+
+            return finish(
+                best_visible,
+                "[Warning: the agent reached its generation safety limit.]",
+            )
         finally:
             if skills_integration is not None:
                 skills_integration.set_skill_manager(original_skill_manager)
@@ -2293,6 +2435,9 @@ class NewelleSettings:
         self.context_max = settings.get_int("context-max")
         self.context_suggested = settings.get_int("context-suggested")
         self.context_summarization = settings.get_boolean("context-summarization")
+        self.tool_loop_verifier = settings.get_boolean("tool-loop-verifier")
+        self.tool_loop_verifier_threshold = settings.get_int("tool-loop-verifier-threshold")
+        self.tool_loop_verifier_prompt = settings.get_string("tool-loop-verifier-prompt")
         self.font_family = settings.get_string("font-family")
         self.font_size = settings.get_int("font-size")
         self.line_height = settings.get_double("line-height")

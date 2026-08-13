@@ -30,6 +30,13 @@ from ...utility.strings import (
 )
 from ...utility.system import is_flatpak
 from ...utility.media import extract_supported_files
+from ...utility.agent_loop import (
+    CompletionVerificationState,
+    CONTINUATION_PROMPT,
+    EMPTY_RECOVERY_PROMPT,
+    parse_agent_turn,
+    verify_completion,
+)
 from ...tools import Command
 
 _ = gettext.gettext
@@ -76,6 +83,14 @@ class ChatTab(Gtk.Box):
         self.auto_run_times = 0
         self.last_generation_time = None
         self.last_token_num = None
+        self._agent_verification = CompletionVerificationState()
+        self._agent_objective = ""
+        self._agent_tool_trace = []
+        self._agent_empty_recovered = False
+        self._agent_prompt_override = None
+        self._agent_prepared_prompts = None
+        self._agent_mode_name = None
+        self._agent_expanded_tools = frozenset()
         
         # Recording state
         self.recording = False
@@ -792,6 +807,45 @@ class ChatTab(Gtk.Box):
         """Send a message in the chat and get bot answer."""
         if manual:
             self.auto_run_times = 0
+            settings = self.controller.newelle_settings
+            self._agent_verification = CompletionVerificationState(
+                enabled=bool(getattr(settings, "tool_loop_verifier", True)),
+                threshold=int(getattr(settings, "tool_loop_verifier_threshold", 5)),
+            )
+            self._agent_objective = next(
+                (
+                    item.get("Message", "")
+                    for item in reversed(self.chat)
+                    if item.get("User") == "User" and not item.get("ToolContext")
+                ),
+                "",
+            )
+            self._agent_tool_trace = []
+            self._agent_empty_recovered = False
+            self._agent_prompt_override = None
+            self._agent_prepared_prompts = None
+            mode_manager = getattr(self.controller, "mode_manager", None)
+            self._agent_mode_name = (
+                mode_manager.get_active_mode_name() if mode_manager else None
+            )
+            self._agent_expanded_tools = frozenset(self.controller.expanded_tools)
+
+        if not manual:
+            mode_manager = getattr(self.controller, "mode_manager", None)
+            current_mode = mode_manager.get_active_mode_name() if mode_manager else None
+            current_expanded = frozenset(self.controller.expanded_tools)
+            if current_mode != self._agent_mode_name:
+                self._agent_prepared_prompts = None
+                self._agent_mode_name = current_mode
+            elif current_expanded != self._agent_expanded_tools:
+                for tool_name in current_expanded - self._agent_expanded_tools:
+                    self._agent_prepared_prompts = self.controller.tools.expand_tool_in_prompts(
+                        self._agent_prepared_prompts or [], tool_name
+                    )
+            self._agent_expanded_tools = current_expanded
+
+        prompt_override = self._agent_prompt_override
+        self._agent_prompt_override = None
         
         self.stream_number_variable += 1
         stream_number_variable = self.stream_number_variable
@@ -821,7 +875,9 @@ class ChatTab(Gtk.Box):
             for status, data in self.controller.generate_response(
                 stream_number_variable, 
                 self.update_message,
-                chat_id=self._chat_id
+                chat_id=self._chat_id,
+                prompt_override=prompt_override,
+                prepared_prompts=self._agent_prepared_prompts,
             ):
                 if self.stream_number_variable != stream_number_variable:
                     break
@@ -852,14 +908,27 @@ class ChatTab(Gtk.Box):
         """Handle completion of one model turn in the generation chain."""
         self._cancel_stream_reveal()
         message_label = data['message']
+        model = data.get('model', self.active_generation_model)
         prompts = data['prompts']
+        if self._agent_prepared_prompts is None:
+            self._agent_prepared_prompts = list(prompts)
         self.last_generation_time = data['time']
         self.last_token_num = (data['input_tokens'], data['output_tokens'])
         trim_result = data.get('trim_result')
         if trim_result is not None and hasattr(self, 'context_indicator'):
             self.context_indicator.update_stats(trim_result)
         
-        waiting_for_tools = False
+        turn = parse_agent_turn(message_label)
+        self._agent_verification.record_tools(len(turn.tool_calls))
+        self._agent_tool_trace.extend(
+            {
+                "name": call.name,
+                "arguments": call.arguments,
+                "result": "",
+            }
+            for call in turn.tool_calls
+        )
+
         if hasattr(self, "current_streaming_message") and self.current_streaming_message:
             # Streaming was active, finalize the existing widget
             streaming_widget = self.current_streaming_message
@@ -875,7 +944,6 @@ class ChatTab(Gtk.Box):
             final_message = message_label
             
             def finalize_stream():
-                nonlocal waiting_for_tools
                 streaming_widget.update_content(final_message, is_streaming=False)
                 streaming_widget.finish_streaming()
                 waiting_for_tools = streaming_widget.state.get(
@@ -896,43 +964,18 @@ class ChatTab(Gtk.Box):
                     generation_finished=not waiting_for_tools
                 )
                 self.save_chat()
-                
-                # Handle deferred tool execution and continuation
-                if waiting_for_tools:
-                    threads = streaming_widget.state.get("running_threads", [])
-                    parallel = self.controller.newelle_settings.parallel_tool_execution
-                    current_stream = self.stream_number_variable
-                    
-                    def wait_and_continue():
-                        if not parallel:
-                            for t in threads:
-                                t.start()
-                                t.join()
-                        else:
-                            for t in threads:
-                                t.join()
-                        
-                        if self.stream_number_variable != current_stream:
-                            return
-                        
-                        if threads and streaming_widget.state.get("should_continue", False):
-                            self.send_message(manual=False)
-                        else:
-                            GLib.idle_add(
-                                self._finish_generation_chain,
-                                message_label,
-                                current_stream,
-                            )
-                    
-                    threading.Thread(target=wait_and_continue).start()
-                else:
-                    GLib.idle_add(self.chat_history.scrolled_chat)
+                self._handle_rendered_agent_message(
+                    streaming_widget,
+                    message_label,
+                    stream_number_variable,
+                    model,
+                )
             
             finalize_stream()
             self.current_streaming_message = None
         else:
-            # No streaming, standard display
-            self.chat_history.show_message(
+            # Non-streaming providers use the same tool wait/continuation path.
+            message_widget = self.chat_history.show_message(
                 message_label,
                 False,
                 -1,
@@ -941,21 +984,148 @@ class ChatTab(Gtk.Box):
                 False,
                 "\n".join(prompts),
             )
-        
-        if waiting_for_tools:
-            return
+            # Message rendering is queued on GLib; enqueue reconciliation after it.
+            GLib.idle_add(
+                self._handle_rendered_agent_message,
+                message_widget,
+                message_label,
+                stream_number_variable,
+                model,
+            )
 
-        self._finish_generation_chain(message_label, stream_number_variable)
+    def _handle_rendered_agent_message(
+        self, message_widget, message_label, stream_number_variable, model
+    ):
+        if self.stream_number_variable != stream_number_variable:
+            return GLib.SOURCE_REMOVE
+        if message_widget is None:
+            self._attempt_finish_generation_chain(
+                message_label, stream_number_variable, model
+            )
+            return GLib.SOURCE_REMOVE
+
+        waiting_for_tools = message_widget.state.get("has_terminal_command", False)
+        if not waiting_for_tools:
+            self._attempt_finish_generation_chain(
+                message_label, stream_number_variable, model
+            )
+            return GLib.SOURCE_REMOVE
+
+        threads = message_widget.state.get("running_threads", [])
+        parallel = self.controller.newelle_settings.parallel_tool_execution
+
+        def wait_and_continue():
+            if not parallel:
+                for thread in threads:
+                    if not thread.is_alive():
+                        thread.start()
+                    thread.join()
+            else:
+                for thread in threads:
+                    thread.join()
+
+            if self.stream_number_variable != stream_number_variable:
+                return
+
+            # Tool result workers append Console records in model order. Persist
+            # the completed batch once and enrich the verifier's bounded trace.
+            console_messages = [
+                item.get("Message", "")
+                for item in self.chat
+                if item.get("User") == "Console"
+            ]
+            empty_trace = [
+                item for item in self._agent_tool_trace if not item.get("result")
+            ]
+            for trace_item, console_message in zip(
+                empty_trace[-len(threads or empty_trace):],
+                console_messages[-len(threads or empty_trace):],
+            ):
+                trace_item["result"] = console_message
+            self.save_chat()
+
+            if message_widget.state.get("should_continue", False):
+                GLib.idle_add(self.send_message, False)
+            else:
+                # A ready None result is a deliberate terminal tool result and
+                # bypasses the completion verifier.
+                GLib.idle_add(
+                    self._finish_generation_chain,
+                    message_label,
+                    stream_number_variable,
+                )
+
+        threading.Thread(target=wait_and_continue, daemon=True).start()
+        return GLib.SOURCE_REMOVE
+
+    def _attempt_finish_generation_chain(
+        self, message_label, stream_number_variable, model
+    ):
+        """Apply deterministic recovery, then the optional long-loop verifier."""
+        if self.stream_number_variable != stream_number_variable:
+            return GLib.SOURCE_REMOVE
+        turn = parse_agent_turn(message_label)
+        if turn.is_empty:
+            if not self._agent_empty_recovered:
+                self._agent_empty_recovered = True
+                self._agent_prompt_override = EMPTY_RECOVERY_PROMPT
+                self.send_message(manual=False)
+                return GLib.SOURCE_REMOVE
+            warning = _("The agent produced no visible response or tool call after recovery.")
+            self.chat_history.show_message(
+                warning, False, -1, False, False, True
+            )
+            return self._finish_generation_chain(
+                warning, stream_number_variable
+            )
+
+        if not self._agent_verification.should_verify():
+            return self._finish_generation_chain(
+                turn.visible_content, stream_number_variable
+            )
+
+        decision_prompt = getattr(
+            self.controller.newelle_settings, "tool_loop_verifier_prompt", ""
+        )
+
+        def run_verifier():
+            should_continue = verify_completion(
+                model,
+                self._agent_objective,
+                self._agent_tool_trace,
+                turn.visible_content,
+                decision_prompt,
+            )
+
+            def apply_verdict():
+                if self.stream_number_variable != stream_number_variable:
+                    return GLib.SOURCE_REMOVE
+                if should_continue:
+                    self._agent_verification.mark_continued()
+                    self._agent_prompt_override = CONTINUATION_PROMPT
+                    self.send_message(manual=False)
+                else:
+                    self._finish_generation_chain(
+                        turn.visible_content, stream_number_variable
+                    )
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(apply_verdict)
+
+        threading.Thread(target=run_verifier, daemon=True).start()
+        return GLib.SOURCE_REMOVE
 
     def _finish_generation_chain(self, message_label, stream_number_variable):
         """Mark the full response chain done after all tool continuations."""
         if self.stream_number_variable != stream_number_variable:
             return GLib.SOURCE_REMOVE
 
+        self.status = True
         self.chat_history.set_generating(False)
         self.remove_send_button_spinner()
         self.update_tab_indicator()
         self.emit("generation-stopped")
+        self.controller.update_memory(message_label, chat=self.chat)
 
         # Generate suggestions
         self.generate_suggestions()
