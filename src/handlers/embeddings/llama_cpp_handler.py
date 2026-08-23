@@ -1,4 +1,4 @@
-from ...handlers.embeddings import EmbeddingHandler
+from ...handlers.embeddings import EmbeddingHandler, EmbeddingPurpose
 from ...handlers import ExtraSettings
 from ...handlers import ErrorSeverity
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
@@ -168,6 +168,8 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
                 update_settings=True,
             )
         )
+
+        settings.extend(self.get_prefix_settings())
 
         #settings.extend(
         #    [
@@ -1378,7 +1380,9 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             return truncated
         return text
 
-    def get_embedding(self, text: list[str]) -> np.ndarray:
+    def get_embedding(
+        self, text: list[str], purpose: EmbeddingPurpose = None
+    ) -> np.ndarray:
         """Get embeddings for a list of texts using llama-server's embedding endpoint"""
         # Ensure model is loaded and server is running
         if self.loaded_model is None or not self.server.is_running:
@@ -1392,6 +1396,8 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
         # Handle both single text and list of texts
         if isinstance(text, str):
             text = [text]
+
+        text = self._prepare_embedding_texts(text, purpose)
         
         # Truncate texts to avoid context length issues (500 error)
         truncated_texts = [self.truncate_text(t) for t in text]
