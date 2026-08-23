@@ -215,6 +215,7 @@ class GUIAPIInterface(Interface):
             icon: Optional[Any] = None
             tools: Optional[Any] = None
             skills: Optional[Any] = None
+            subagents: Optional[Any] = None
             prompts: Optional[Any] = None
 
         class SetExtensionEnabledRequest(BaseModel):
@@ -229,6 +230,21 @@ class GUIAPIInterface(Interface):
 
         class SetSkillEnabledRequest(BaseModel):
             name: str
+            enabled: bool
+
+        class SubagentMutationRequest(BaseModel):
+            name: Optional[Any] = None
+            description: Optional[Any] = None
+            system_prompt: Optional[Any] = None
+            tools: Optional[Any] = None
+            skills: Optional[Any] = None
+            provider: Optional[Any] = None
+            model: Optional[Any] = None
+            use_secondary_model: Optional[Any] = None
+            default_on: Optional[Any] = None
+
+        class SetSubagentEnabledRequest(BaseModel):
+            id: str
             enabled: bool
 
         class SetSttProviderRequest(BaseModel):
@@ -290,6 +306,12 @@ class GUIAPIInterface(Interface):
         # ============================================================ #
         #                           CHATS                               #
         # ============================================================ #
+        def _get_api_chat(chat_id: int):
+            chat = controller.chats.get(chat_id)
+            if chat is None or "subagent_session" in chat:
+                raise HTTPException(status_code=404, detail="Chat not found")
+            return chat
+
         @app.get("/api/chats")
         def api_list_chats():
             """List all chats with metadata (list_chats_info equivalent)."""
@@ -313,8 +335,7 @@ class GUIAPIInterface(Interface):
         @app.get("/api/chats/{chat_id}/history")
         def api_get_chat_history(chat_id: int):
             """Get full message timeline for one chat."""
-            if chat_id not in controller.chats:
-                raise HTTPException(status_code=404, detail="Chat not found")
+            _get_api_chat(chat_id)
             return controller.get_chat_by_id(chat_id)
 
         @app.post("/api/chats")
@@ -326,19 +347,16 @@ class GUIAPIInterface(Interface):
 
         @app.put("/api/chats/{chat_id}/rename")
         def api_rename_chat(chat_id: int, req: RenameChatRequest):
-            if chat_id not in controller.chats:
-                raise HTTPException(status_code=404, detail="Chat not found")
+            _get_api_chat(chat_id)
             controller.chats[chat_id]["name"] = req.name
             controller.save_chats()
             return {"status": "ok"}
 
         @app.delete("/api/chats/{chat_id}")
         def api_delete_chat(chat_id: int):
-            if chat_id not in controller.chats:
+            _get_api_chat(chat_id)
+            if not controller.delete_chat(chat_id):
                 raise HTTPException(status_code=404, detail="Chat not found")
-            controller.remove_chat_from_folder(chat_id)
-            del controller.chats[chat_id]
-            controller.save_chats()
             return {"status": "ok"}
 
         @app.get("/api/chats/ids")
@@ -347,8 +365,7 @@ class GUIAPIInterface(Interface):
 
         @app.get("/api/chats/{chat_id}")
         def api_get_chat_by_id(chat_id: int):
-            if chat_id not in controller.chats:
-                raise HTTPException(status_code=404, detail="Chat not found")
+            _get_api_chat(chat_id)
             return {
                 "id": chat_id,
                 "data": controller.chats[chat_id],
@@ -356,8 +373,7 @@ class GUIAPIInterface(Interface):
 
         @app.put("/api/chats/{chat_id}")
         def api_set_chat_by_id(chat_id: int, messages: list = Body(...)):
-            if chat_id not in controller.chats:
-                raise HTTPException(status_code=404, detail="Chat not found")
+            _get_api_chat(chat_id)
             controller.set_chat_by_id(chat_id, messages)
             controller.save_chats()
             return {"status": "ok"}
@@ -374,14 +390,13 @@ class GUIAPIInterface(Interface):
             if window is None:
                 raise HTTPException(status_code=503, detail="Window not available")
             source = req.source_chat_id if req.source_chat_id is not None else chat_id
+            _get_api_chat(source)
             window.create_branch(req.message_id, source)
             return {"status": "ok"}
 
         @app.post("/api/chats/{chat_id}/copy")
         def api_copy_chat(chat_id: int):
-            if chat_id not in controller.chats:
-                raise HTTPException(status_code=404, detail="Chat not found")
-            source = controller.chats[chat_id]
+            source = _get_api_chat(chat_id)
             new_id = controller.create_visible_chat(name=source["name"] + " (copy)")
             controller.chats[new_id]["chat"] = [m.copy() for m in source.get("chat", [])]
             controller.save_chats()
@@ -389,6 +404,9 @@ class GUIAPIInterface(Interface):
 
         @app.post("/api/chats/{chat_id}/choose")
         def api_choose_chat(chat_id: int):
+            chat = _get_api_chat(chat_id)
+            if chat.get("call", False):
+                raise HTTPException(status_code=400, detail="Cannot select a call chat")
             controller.newelle_settings.chat_id = chat_id
             controller.settings.set_int("chat", chat_id)
             return {"status": "ok"}
@@ -398,8 +416,7 @@ class GUIAPIInterface(Interface):
         # ============================================================ #
         @app.post("/api/messages/run-llm")
         async def api_run_llm_with_tools(req: RunLLMRequest):
-            if req.chat_id not in controller.chats:
-                raise HTTPException(status_code=404, detail="Chat not found")
+            _get_api_chat(req.chat_id)
             try:
                 result = controller.run_llm_with_tools(
                     message=req.message,
@@ -414,6 +431,7 @@ class GUIAPIInterface(Interface):
 
         @app.get("/api/chats/{chat_id}/messages/{message_id}/console-reply")
         def api_get_console_reply(chat_id: int, message_id: int):
+            _get_api_chat(chat_id)
             result = controller.get_console_reply(chat_id, message_id)
             if result is None:
                 raise HTTPException(status_code=404, detail="Console reply not found")
@@ -421,6 +439,7 @@ class GUIAPIInterface(Interface):
 
         @app.get("/api/chats/{chat_id}/messages/{message_id}/tool-response")
         def api_get_tool_response(chat_id: int, message_id: int, tool_name: str, tool_uuid: str):
+            _get_api_chat(chat_id)
             result = controller.get_tool_response(chat_id, message_id, tool_name, tool_uuid)
             if result is None:
                 raise HTTPException(status_code=404, detail="Tool response not found")
@@ -428,6 +447,7 @@ class GUIAPIInterface(Interface):
 
         @app.get("/api/chats/{chat_id}/messages/{message_id}/tool-call-uuid")
         def api_get_tool_call_uuid(chat_id: int, message_id: int, tool_name: str, tool_call_index: int = 0):
+            _get_api_chat(chat_id)
             result = controller.get_tool_call_uuid(chat_id, message_id, tool_name, tool_call_index)
             return {"uuid": result}
 
@@ -892,6 +912,7 @@ class GUIAPIInterface(Interface):
                 "icon": mode.get("icon", ""),
                 "tools": mode.get("tools", {}),
                 "skills": mode.get("skills", {}),
+                "subagents": mode.get("subagents", {}),
                 "prompts": mode.get("prompts", {}),
                 "current": name == mm.get_active_mode_name(),
                 "builtin": name in BUILT_IN_MODE_NAMES,
@@ -909,7 +930,7 @@ class GUIAPIInterface(Interface):
                         status_code=400, detail="Mode name cannot be blank"
                     )
 
-            for field_name in ("tools", "skills"):
+            for field_name in ("tools", "skills", "subagents"):
                 state_map = getattr(req, field_name)
                 if state_map is None:
                     continue
@@ -1055,10 +1076,21 @@ class GUIAPIInterface(Interface):
                 }
                 for skill in skill_manager.skills.values()
             ]
+            subagent_manager = getattr(controller, "subagent_manager", None)
+            subagents = [] if subagent_manager is None else [
+                {
+                    "id": subagent_id,
+                    "name": definition.get("name", subagent_id),
+                    "description": definition.get("description", ""),
+                    "source_extension": definition.get("source_extension"),
+                }
+                for subagent_id, definition in subagent_manager.get_subagents().items()
+            ]
             return {
                 "prompts": prompts,
                 "tools": tools,
                 "skills": skills,
+                "subagents": subagents,
                 "icons": list(MODE_ICON_CHOICES),
                 "states": list(VALID_STATES),
             }
@@ -1086,6 +1118,7 @@ class GUIAPIInterface(Interface):
                     icon=req.icon or DEFAULT_MODE_ICON,
                     tools=req.tools or {},
                     skills=req.skills or {},
+                    subagents=req.subagents or {},
                     prompts=req.prompts or {},
                 )
             except ModeError as error:
@@ -1108,6 +1141,7 @@ class GUIAPIInterface(Interface):
                     icon=req.icon,
                     tools=req.tools,
                     skills=req.skills,
+                    subagents=req.subagents,
                     prompts=req.prompts,
                 )
             except ModeError as error:
@@ -1576,6 +1610,87 @@ class GUIAPIInterface(Interface):
                 raise HTTPException(status_code=404, detail="Extension not found")
             loader.remove_extension(extension_id)
             controller.reload_extensions({extension_id})
+            return {"status": "ok"}
+
+        # ============================================================ #
+        #                         SUBAGENTS                            #
+        # ============================================================ #
+        def _get_subagent_manager():
+            manager = getattr(controller, "subagent_manager", None)
+            if manager is None:
+                raise HTTPException(status_code=503, detail="Subagents not available")
+            return manager
+
+        def _subagent_payload(req):
+            if hasattr(req, "model_dump"):
+                return req.model_dump(exclude_none=True)
+            return req.dict(exclude_none=True)
+
+        def _raise_subagent_error(error):
+            from ...subagents import (
+                InvalidSubagentError,
+                ReadOnlySubagentError,
+                SubagentNotFoundError,
+            )
+            if isinstance(error, SubagentNotFoundError):
+                raise HTTPException(status_code=404, detail=str(error))
+            if isinstance(error, ReadOnlySubagentError):
+                raise HTTPException(status_code=403, detail=str(error))
+            if isinstance(error, InvalidSubagentError):
+                raise HTTPException(status_code=400, detail=str(error))
+            raise error
+
+        @app.get("/api/subagents")
+        def api_list_subagents():
+            return list(_get_subagent_manager().get_subagents().values())
+
+        @app.post("/api/subagents")
+        def api_create_subagent(req: SubagentMutationRequest):
+            manager = _get_subagent_manager()
+            try:
+                identifier = manager.create(_subagent_payload(req))
+            except Exception as error:
+                _raise_subagent_error(error)
+            return manager.get_subagent(identifier)
+
+        @app.post("/api/subagents/set-enabled")
+        def api_set_subagent_enabled(req: SetSubagentEnabledRequest):
+            manager = _get_subagent_manager()
+            try:
+                manager.set_enabled(req.id, req.enabled)
+            except Exception as error:
+                _raise_subagent_error(error)
+            return manager.get_subagent(req.id)
+
+        @app.get("/api/subagents/{subagent_id}")
+        def api_get_subagent(subagent_id: str):
+            definition = _get_subagent_manager().get_subagent(subagent_id)
+            if definition is None:
+                raise HTTPException(status_code=404, detail="Subagent not found")
+            return definition
+
+        @app.patch("/api/subagents/{subagent_id}")
+        def api_update_subagent(
+            subagent_id: str, req: SubagentMutationRequest
+        ):
+            manager = _get_subagent_manager()
+            try:
+                return manager.update(subagent_id, _subagent_payload(req))
+            except Exception as error:
+                _raise_subagent_error(error)
+
+        @app.delete("/api/subagents/{subagent_id}")
+        def api_delete_subagent(subagent_id: str):
+            manager = _get_subagent_manager()
+            try:
+                if not manager.delete(subagent_id):
+                    raise HTTPException(
+                        status_code=404, detail="Subagent not found"
+                    )
+            except HTTPException:
+                raise
+            except Exception as error:
+                _raise_subagent_error(error)
             return {"status": "ok"}
 
         # ============================================================ #

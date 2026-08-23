@@ -161,6 +161,9 @@
         <key name="current-mode" type="s">
           <default>"Normal"</default>
         </key>
+        <key name="subagents" type="s">
+          <default>"{}"</default>
+        </key>
         <key name="user-name" type="s">
           <default>"User"</default>
         </key>
@@ -205,7 +208,10 @@
         </key>
         <key name="skills-settings" type="s">
           <default>"{}"</default>
-        </key> 
+        </key>
+        <key name="subagents-settings" type="s">
+          <default>"{}"</default>
+        </key>
         <key name="scheduled-tasks" type="s">
           <default>"[]"</default>
         </key>

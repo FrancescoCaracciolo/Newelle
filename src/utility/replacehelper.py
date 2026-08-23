@@ -143,7 +143,8 @@ def replace_variables(text: str) -> str:
         text = text.replace("{SKILLS}", ReplaceHelper.get_skills_catalog())
     return text
 
-def replace_variables_dict() -> dict:
+def replace_variables_dict(tools: str | None = None, skills: str | None = None) -> dict:
+    """Return prompt variables, optionally with a scoped tool/skill catalog."""
     return {
         "{DIR}": os.getcwd(),
         "{AGENTSMD}": ReplaceHelper.get_agents_md(),
@@ -152,8 +153,8 @@ def replace_variables_dict() -> dict:
         "{DATE}": str(time.strftime("%H:%M %Y-%m-%d")),
         "{USER}": ReplaceHelper.get_user(),
         "{DISPLAY}": ReplaceHelper.gisplay_server(),
-        "{TOOLS}": ReplaceHelper.get_tools_json(),
-        "{SKILLS}": ReplaceHelper.get_skills_catalog(),
+        "{TOOLS}": ReplaceHelper.get_tools_json() if tools is None else tools,
+        "{SKILLS}": ReplaceHelper.get_skills_catalog() if skills is None else skills,
     }
 
 class PromptFormatter:

@@ -2603,9 +2603,7 @@ class MainWindow(Adw.ApplicationWindow):
         tab_page = self.get_tab_for_chat(deleted_chat_id)
         if tab_page is not None:
             self.chat_tabs.close_page(tab_page)
-        self.controller.remove_chat_from_folder(deleted_chat_id, save=False)
-        del self.chats[deleted_chat_id]
-        self.save_chat()
+        self.controller.delete_chat(deleted_chat_id)
         self.update_history()
 
     def edit_chat_name(self, button, stack, multithreading=False):

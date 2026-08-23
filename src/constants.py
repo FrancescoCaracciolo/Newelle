@@ -838,7 +838,7 @@ SETTINGS_GROUPS = {
         },
         "tools": {
             "title": _("Tools"),
-            "settings": ["tools-settings", "mcp-servers", "skills-settings", "file-permissions", "command-execution-permissions", "path-security-levels", "default-risk-level"],
+            "settings": ["tools-settings", "mcp-servers", "skills-settings", "subagents-settings", "file-permissions", "command-execution-permissions", "path-security-levels", "default-risk-level"],
             "description": _("Tools settings, tools groups..."),
         },
         "wakeword": {

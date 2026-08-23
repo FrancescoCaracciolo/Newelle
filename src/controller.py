@@ -9,6 +9,8 @@ import copy
 from .tools import Tool, ToolRegistry, ToolResult
 from .skills import SkillManager
 from .modes import ModeManager
+from .subagents import SubagentManager
+from .subagent_runtime import SubagentSessionRuntime
 from .utility.media import chat_contains_vision, get_image_base64, get_image_path, extract_supported_files
 from .utility.message_chunk import get_message_chunks
 
@@ -103,17 +105,21 @@ class NewelleController:
         chat: current chat 
         extensionloader: Extensionloader object 
     """
-    def chat_ids_ordered(self):
-        """Return chat IDs in stable chronological order (sorted by ID)."""
+    def chat_ids_ordered(self, include_calls: bool = False):
+        """Return visible chat IDs in stable chronological order."""
         if not hasattr(self, 'chats') or not self.chats:
             return []
-        return sorted(self.chats.keys())
+        with self.chat_state_lock:
+            return sorted(
+                chat_id
+                for chat_id, chat in self.chats.items()
+                if include_calls or not chat.get("call", False)
+            )
 
     def _get_fallback_chat_id(self):
         """Return first available chat_id when current is invalid."""
-        if not self.chats:
-            return None
-        return min(self.chats.keys())
+        visible_ids = self.chat_ids_ordered()
+        return visible_ids[0] if visible_ids else None
 
     @property
     def chat(self):
@@ -184,7 +190,9 @@ class NewelleController:
             return chat[idx]["Message"]
         return None
 
-    def get_tool_response(self, chat_id, id_message, tool_name, tool_uuid):
+    def get_tool_response(
+        self, chat_id, id_message, tool_name, tool_uuid, strict=False
+    ):
         """Get existing tool response from chat history by tool name and UUID."""
         if not hasattr(self, 'chats') or not self.chats or chat_id not in self.chats:
             return None
@@ -196,7 +204,7 @@ class NewelleController:
                 if msg.startswith(f"[Tool: {tool_name}, ID: {tool_uuid}]"):
                     lines = msg.split("\n", 1)
                     return lines[1] if len(lines) > 1 else ""
-                if not msg.startswith("[Tool:"):
+                if not strict and not msg.startswith("[Tool:"):
                     return msg
         return None
 
@@ -237,7 +245,9 @@ class NewelleController:
         self.scheduled_tasks = []
         self.scheduled_tasks_lock = threading.Lock()
         self.save_lock = threading.Lock()
+        self.chat_state_lock = threading.RLock()
         self.scheduler_source_id = None
+        self.subagent_runtime = SubagentSessionRuntime(self)
 
     def ui_init(self):
         """Init necessary variables for the UI and load models and handlers"""
@@ -255,10 +265,16 @@ class NewelleController:
         self.mode_manager = ModeManager(self.settings)
         # Merge any modes contributed by already-loaded extensions.
         self.extensionloader.add_modes(self.mode_manager)
+        self.subagent_manager = SubagentManager(
+            self.settings,
+            extension_loader=self.extensionloader,
+            mode_manager=self.mode_manager,
+        )
         self.skill_manager.set_mode_overrides(self.mode_manager.get_active_mode()["skills"])
         self.newelle_settings = NewelleSettings(self.mode_manager)
         self.newelle_settings.load_settings(self.settings)
         self.load_chats(self.newelle_settings.chat_id)
+        self.subagent_runtime.recover_sessions()
         self.handlers = HandlersManager(self.settings, self.extensionloader, self.models_dir, self.integrationsloader, self.installing_handlers, self)
         self.handlers.select_handlers(self.newelle_settings)
         threading.Thread(target=self.handlers.cache_handlers).start()
@@ -347,72 +363,102 @@ class NewelleController:
             self.folders = {}
             self.next_folder_id = 0
 
-        # Validate chat_id: if not in chats, use first available
-        if self.chats and hasattr(self, 'newelle_settings'):
-            if self.newelle_settings.chat_id not in self.chats:
-                self.newelle_settings.chat_id = min(self.chats.keys())
+        # Always keep at least one visible owner chat. Hidden call/session
+        # transcripts must never become the selected conversation.
+        visible_ids = self.chat_ids_ordered()
+        if not visible_ids:
+            chat_id = self.next_chat_id
+            self.next_chat_id += 1
+            self.chats[chat_id] = {"name": _("Chat ") + "1", "chat": []}
+            visible_ids = [chat_id]
+        if hasattr(self, 'newelle_settings'):
+            if self.newelle_settings.chat_id not in visible_ids:
+                self.newelle_settings.chat_id = visible_ids[0]
 
     def save_chats(self):
         """Save chats without exposing a partially written storage file."""
         with self.save_lock:
-            storage_dir = os.path.dirname(self.chats_path) or "."
-            storage_name = os.path.basename(self.chats_path)
-            temporary_path = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="wb",
-                    dir=storage_dir,
-                    prefix=f".{storage_name}.",
-                    suffix=".tmp",
-                    delete=False,
-                ) as temporary_file:
-                    temporary_path = temporary_file.name
-                    pickle.dump({
-                        "chats": self.chats,
-                        "next_chat_id": self.next_chat_id,
-                        "folders": self.folders,
-                        "next_folder_id": self.next_folder_id,
-                    }, temporary_file)
-                    temporary_file.flush()
-                    os.fsync(temporary_file.fileno())
-
-                os.replace(temporary_path, self.chats_path)
+            with self.chat_state_lock:
+                storage_dir = os.path.dirname(self.chats_path) or "."
+                storage_name = os.path.basename(self.chats_path)
                 temporary_path = None
-            finally:
-                if temporary_path is not None:
-                    try:
-                        os.unlink(temporary_path)
-                    except FileNotFoundError:
-                        pass
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        mode="wb",
+                        dir=storage_dir,
+                        prefix=f".{storage_name}.",
+                        suffix=".tmp",
+                        delete=False,
+                    ) as temporary_file:
+                        temporary_path = temporary_file.name
+                        pickle.dump({
+                            "chats": self.chats,
+                            "next_chat_id": self.next_chat_id,
+                            "folders": self.folders,
+                            "next_folder_id": self.next_folder_id,
+                        }, temporary_file)
+                        temporary_file.flush()
+                        os.fsync(temporary_file.fileno())
 
-    def create_call_chat(self):
-        """Create a new call chat that won't be displayed in the chat list"""
-        chat_id = self.next_chat_id
-        self.next_chat_id += 1
-        new_chat = {
-            "name": _("Call ") + str(chat_id),
-            "chat": [],
-            "call": True
-        }
-        self.chats[chat_id] = new_chat
+                    os.replace(temporary_path, self.chats_path)
+                    temporary_path = None
+                finally:
+                    if temporary_path is not None:
+                        try:
+                            os.unlink(temporary_path)
+                        except FileNotFoundError:
+                            pass
+
+    def create_call_chat(self, name: str | None = None, metadata: dict | None = None):
+        """Create a hidden call chat, optionally with durable runtime metadata."""
+        with self.chat_state_lock:
+            chat_id = self.next_chat_id
+            self.next_chat_id += 1
+            new_chat = {
+                "name": name or (_("Call ") + str(chat_id)),
+                "chat": [],
+                "call": True
+            }
+            if metadata:
+                new_chat.update(copy.deepcopy(metadata))
+            self.chats[chat_id] = new_chat
         self.save_chats()
         return chat_id
 
+    def cleanup_owner_sessions(self, owner_chat_id: int) -> int:
+        """Delete hidden subagent sessions belonging to a main chat."""
+        return self.subagent_runtime.cleanup_owner_sessions(owner_chat_id)
+
+    def delete_chat(self, chat_id: int) -> bool:
+        """Delete a chat and any durable subagent sessions it owns."""
+        with self.chat_state_lock:
+            if chat_id not in self.chats:
+                return False
+            if "subagent_session" in self.chats[chat_id]:
+                return False
+        self.subagent_runtime.delete_owner_sessions(chat_id)
+        with self.chat_state_lock:
+            self.remove_chat_from_folder(chat_id, save=False)
+            del self.chats[chat_id]
+        self.save_chats()
+        return True
+
     def create_visible_chat(self, name: str | None = None, profile: str | None = None, folder_id: int | None = None):
         """Create a new visible chat entry and refresh history."""
-        chat_id = self.next_chat_id
-        self.next_chat_id += 1
-        if name is None:
-            name = _("Chat %d") % chat_id
-        new_chat = {
-            "name": name,
-            "chat": [],
-            "id": str(uuid_lib.uuid4()),
-            "branched_from": None,
-        }
-        if profile is not None:
-            new_chat["profile"] = profile
-        self.chats[chat_id] = new_chat
+        with self.chat_state_lock:
+            chat_id = self.next_chat_id
+            self.next_chat_id += 1
+            if name is None:
+                name = _("Chat %d") % chat_id
+            new_chat = {
+                "name": name,
+                "chat": [],
+                "id": str(uuid_lib.uuid4()),
+                "branched_from": None,
+            }
+            if profile is not None:
+                new_chat["profile"] = profile
+            self.chats[chat_id] = new_chat
         self.save_chats()
         if folder_id is not None and folder_id in self.folders:
             self.move_chat_to_folder(chat_id, folder_id)
@@ -1055,6 +1101,9 @@ class NewelleController:
         if "modes" in refreshes and hasattr(self, "mode_manager"):
             new_loader.add_modes(self.mode_manager)
 
+        if "subagents" in refreshes and hasattr(self, "subagent_manager"):
+            self.subagent_manager.reload_extensions(new_loader)
+
         if "tools" in refreshes or active_handlers_changed:
             self.require_tool_update()
             refreshes.add("tools")
@@ -1123,10 +1172,14 @@ class NewelleController:
         """
         self.extensionloader = extensionloader
         self.handlers.extensionloader = extensionloader
+        if hasattr(self, "subagent_manager"):
+            self.subagent_manager.reload_extensions(extensionloader)
 
     def set_integrationsloader(self, integrationsloader):
         self.integrationsloader = integrationsloader
         self.handlers.integrationsloader = integrationsloader
+        for integration in integrationsloader.get_extensions():
+            integration.runtime_controller = self
 
     def get_mcp_integration(self):
         if self.integrationsloader is not None:
@@ -1207,6 +1260,11 @@ class NewelleController:
         skills_integration = self.integrationsloader.extensionsmap.get("skills")
         if skills_integration is not None and hasattr(self, "skill_manager"):
             skills_integration.set_skill_manager(self.skill_manager)
+        # Integrations normally reach the controller through the GTK
+        # UIController.  Runtime-capable integrations also need a direct path
+        # when Newelle is serving a headless interface.
+        for integration in self.integrationsloader.get_extensions():
+            integration.runtime_controller = self
         self.integrationsloader.add_tools(self.tools)
         self.set_ui_controller(self.ui_controller)
 
@@ -1329,10 +1387,10 @@ class NewelleController:
         Returns:
             dict: Export data in JSON format, or None if chat_id invalid
         """
-        if chat_id not in self.chats:
-            return None
-
-        chat_data = self.chats[chat_id]
+        with self.chat_state_lock:
+            if chat_id not in self.chats or self.chats[chat_id].get("call", False):
+                return None
+            chat_data = copy.deepcopy(self.chats[chat_id])
         export_data = {
             "version": "1.0",
             "export_metadata": {
@@ -1361,7 +1419,11 @@ class NewelleController:
             dict: Export data in JSON format
         """
         chats_list = []
-        for _cid, chat_data in self.chats.items():
+        with self.chat_state_lock:
+            chat_items = copy.deepcopy(list(self.chats.items()))
+        for _cid, chat_data in chat_items:
+            if chat_data.get("call", False):
+                continue
             chat_entry = {
                 "name": chat_data["name"],
                 "profile": chat_data.get("profile", None),
@@ -1856,6 +1918,10 @@ class NewelleController:
         tool_registry: ToolRegistry | None = None,
         skill_manager: SkillManager | None = None,
         extension_processing: bool = True,
+        model: LLMHandler | None = None,
+        tools_settings: dict | None = None,
+        expanded_tools: set[str] | None = None,
+        stop_generation_event: threading.Event | None = None,
     ) -> str:
         """Run LLM with tool support integration.
 
@@ -1875,6 +1941,12 @@ class NewelleController:
             extension_processing: If True, run extension/integration preprocess_history and
                 postprocess_history hooks on the history and final response, mirroring
                 generate_response. Set to False to bypass extension processing.
+            model: Explicit model handler for this run. It remains selected even
+                if a tool changes the active mode.
+            tools_settings: Per-run tool customisation/lazy-loading settings.
+            expanded_tools: Per-run set of lazy tool schemas already expanded.
+            stop_generation_event: Event that ends the turn after the current
+                model/tool operation, used for turn-based subagent messaging.
 
         Returns:
             Final message from the LLM
@@ -1885,6 +1957,16 @@ class NewelleController:
             raise ValueError("max_tool_calls must be at least 1")
 
         active_tool_registry = tool_registry if tool_registry is not None else self.tools
+        active_tools_settings = (
+            tools_settings
+            if tools_settings is not None
+            else self.newelle_settings.tools_settings_dict
+        )
+        active_expanded_tools = (
+            expanded_tools if expanded_tools is not None else self.expanded_tools
+        )
+        if stop_generation_event is None:
+            stop_generation_event = threading.Event()
         active_skill_manager = skill_manager if skill_manager is not None else getattr(self, "skill_manager", None)
         skills_integration = None
         original_skill_manager = None
@@ -1934,7 +2016,9 @@ class NewelleController:
             if mode_manager is not None
             else None
         )
-        model = self.get_model_for_chat(self.chats[chat_id]["chat"])
+        explicit_model = model is not None
+        if model is None:
+            model = self.get_model_for_chat(self.chats[chat_id]["chat"])
         cont = True
         iteration = 0
         tool_call_count = 0
@@ -1945,7 +2029,7 @@ class NewelleController:
         try:
             while True:
                 full_response = ""
-                if not cont:
+                if not cont or stop_generation_event.is_set():
                     break
                 cont = False
 
@@ -1975,7 +2059,8 @@ class NewelleController:
                             )
                     if tool_registry is None:
                         active_tool_registry = self.tools
-                    model = self.get_model_for_chat(self.chats[chat_id]["chat"])
+                    if not explicit_model:
+                        model = self.get_model_for_chat(self.chats[chat_id]["chat"])
 
                 def stream_callback(text: str):
                     nonlocal full_response
@@ -2128,6 +2213,7 @@ class NewelleController:
                         and isinstance(tool_args, dict)
                         and tool_args.get("tool_name")
                     ):
+                        active_expanded_tools.add(tool_args["tool_name"])
                         system_prompt = active_tool_registry.expand_tool_in_prompts(
                             system_prompt, tool_args["tool_name"]
                         )
@@ -2141,7 +2227,7 @@ class NewelleController:
                         # schema was fetched, hand back the schema instead of
                         # running it with guessed arguments, and mark it expanded.
                         redirect = active_tool_registry.maybe_redirect_lazy_tool(
-                            tool_name, self.newelle_settings.tools_settings_dict, self.expanded_tools
+                            tool_name, active_tools_settings, active_expanded_tools
                         )
                         if redirect is not None:
                             # Native tool calling needs the full schema next turn.
@@ -2173,6 +2259,8 @@ class NewelleController:
                                 tool_result_output = result.get_output()
                                 tool_context_messages = result.get_context_messages()
                                 tool_display_text = getattr(result, "display_text", None)
+                                if getattr(result, "stop_generation", False):
+                                    stop_generation_event.set()
                                 if tool_result_output is not None or tool_context_messages:
                                     cont = True
                             elif result is not None:
@@ -2220,6 +2308,12 @@ class NewelleController:
                                 "ToolContext": True,
                             })
                         self.save_chats()
+
+                    if stop_generation_event.is_set():
+                        break
+
+                if stop_generation_event.is_set():
+                    return text_content.strip()
 
                 if tool_call_count >= max_tool_calls:
                     final_synthesis_turn = True
