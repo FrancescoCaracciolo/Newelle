@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import re
+import signal
 import shlex
 import shutil
 import socket
@@ -23,6 +24,11 @@ from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from . import _IMAGE_REQUEST_HEADERS, _pixbuf_from_image_data
 from ..utility.system import can_escape_sandbox, get_spawn_command, is_flatpak, open_website
+from ..utility.download_manager import (
+    DownloadCancelled,
+    DownloadKind,
+    get_download_manager,
+)
 
 
 _ = gettext.gettext
@@ -497,7 +503,7 @@ def _setup_directory_path(config_dir, additional_setup):
     return setup_path
 
 
-def _ensure_git_repository(additional_setup, setup_dir):
+def _ensure_git_repository(additional_setup, setup_dir, task=None):
     """Clone a catalog repository once and verify its expected files."""
     setup_path = Path(setup_dir)
     required_relative_paths = additional_setup["required_paths"]
@@ -517,23 +523,70 @@ def _ensure_git_repository(additional_setup, setup_dir):
         tempfile.mkdtemp(prefix=f".{setup_path.name}.", dir=setup_path.parent)
     )
     try:
-        result = subprocess.run(
-            get_spawn_command()
-            + [
-                "git",
-                "clone",
-                "--depth",
-                "1",
-                additional_setup["repository"],
-                str(staging_path),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "").strip()
+        if task is not None:
+            task.update(
+                phase=_("Downloading MCP setup"),
+                reset_progress=True,
+                cancellable=True,
+            )
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as output:
+            process = subprocess.Popen(
+                get_spawn_command()
+                + [
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    additional_setup["repository"],
+                    str(staging_path),
+                ],
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+            timed_out = False
+            for _tick in range(900):
+                try:
+                    process.wait(timeout=0.2)
+                    break
+                except subprocess.TimeoutExpired:
+                    if task is not None and task.cancel_requested:
+                        try:
+                            os.killpg(process.pid, signal.SIGTERM)
+                        except OSError:
+                            process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            try:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            except OSError:
+                                process.kill()
+                            process.wait(timeout=5)
+                        raise DownloadCancelled()
+            else:
+                timed_out = True
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except OSError:
+                    process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except OSError:
+                        process.kill()
+                    process.wait(timeout=5)
+            output.seek(0)
+            detail = output.read().strip()
+            returncode = process.returncode
+        if timed_out:
+            raise RuntimeError(
+                _("Automatic MCP setup timed out while downloading the repository.")
+            )
+        if returncode != 0:
             raise RuntimeError(
                 _("Could not download the automatic setup repository{}.").format(
                     f": {detail[-500:]}" if detail else ""
@@ -561,8 +614,6 @@ def _ensure_git_repository(additional_setup, setup_dir):
                 missing_command
             )
         ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(_("Automatic MCP setup timed out while downloading the repository.")) from exc
     finally:
         if staging_path is not None:
             shutil.rmtree(staging_path, ignore_errors=True)
@@ -1559,16 +1610,32 @@ class ConnectApplicationView(Gtk.Box):
                     "additional_setup"
                 )
                 if additional_setup is not None and automatic_setup_enabled:
-                    setup_directory = _setup_directory_path(
-                        self.controller.config_dir, additional_setup
-                    )
-                    _ensure_git_repository(
-                        additional_setup,
-                        setup_directory,
-                    )
-                    post_setup = additional_setup.get("post_setup")
-                    if post_setup is not None and post_setup.get("type") == "gimp_plugin":
-                        _install_gimp_plugin(additional_setup, setup_directory)
+                    manager = get_download_manager()
+                    with manager.operation(
+                        _("Install MCP setup for {name}").format(
+                            name=application_name
+                        ),
+                        kind=DownloadKind.MCP,
+                        source_id=f"mcp:{application_id}",
+                        phase=_("Downloading MCP setup"),
+                        cancellable=True,
+                    ) as task:
+                        setup_directory = _setup_directory_path(
+                            self.controller.config_dir, additional_setup
+                        )
+                        _ensure_git_repository(
+                            additional_setup,
+                            setup_directory,
+                            task=task,
+                        )
+                        post_setup = additional_setup.get("post_setup")
+                        if post_setup is not None and post_setup.get("type") == "gimp_plugin":
+                            task.update(
+                                phase=_("Installing MCP integration"),
+                                reset_progress=True,
+                                cancellable=False,
+                            )
+                            _install_gimp_plugin(additional_setup, setup_directory)
 
                 if server["type"] == "http" and auth.get("type") == "oauth":
                     from ..integrations.mcp_oauth import run_oauth_flow

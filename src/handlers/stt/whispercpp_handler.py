@@ -1,7 +1,8 @@
-import gettext
+from gettext import gettext as _
 from ...utility.strings import quote_string
 from ...utility.system import get_spawn_command, can_escape_sandbox, is_flatpak
 from ...utility.background_process import BackgroundProcess
+from ...utility.download_manager import current_download_task
 from .stt import STTHandler
 from ...handlers import ErrorSeverity, ExtraSettings
 from ...ui.model_library import ModelLibraryWindow, LibraryModel
@@ -133,28 +134,14 @@ class WhisperCPPHandler(STTHandler):
             self.settings_update()
         else:
             self.downloading[model_name] = {"status": True, "progress": 0.0}
-            # Notify UI that download has started
             self.settings_update()
-            path = os.path.join(self.whisper_cpp_path, "models/download-ggml-model.sh")
-
-            def run_install():
-                try:
-                    self.download_model_directly(model_name)
-                    self.downloading[model_name]["progress"] = 1.0
-                    GLib.idle_add(self.settings_update)
-                    # Clean up the downloading entry after completion
-                    if model_name in self.downloading:
-                        del self.downloading[model_name]
-                        GLib.idle_add(self.settings_update)
-                except Exception as e:
-                    print(f"Error installing model: {e}")
-                    self.downloading[model_name]["progress"] = 0.0
-                    # Also clean up on error
-                    if model_name in self.downloading:
-                        del self.downloading[model_name]
-                        GLib.idle_add(self.settings_update)
-
-            threading.Thread(target=run_install).start()
+            try:
+                self.download_model_directly(model_name)
+                self.downloading[model_name]["progress"] = 1.0
+                GLib.idle_add(self.settings_update)
+            finally:
+                self.downloading.pop(model_name, None)
+                GLib.idle_add(self.settings_update)
 
     def download_model_directly(self, model_name):
         """Direct download of whisper model as fallback"""
@@ -164,13 +151,32 @@ class WhisperCPPHandler(STTHandler):
         url = f"{base_url}/{model_filename}"
 
         def update_progress(block_num, block_size, total_size):
-            downloaded = block_num * block_size
+            downloaded = min(block_num * block_size, total_size) if total_size > 0 else block_num * block_size
             if total_size > 0:
                 self.downloading[model_name]["progress"] = min(downloaded / total_size, 0.99)
+            if task is not None:
+                task.check_cancelled()
+                task.update(
+                    phase=_("Downloading {name}").format(name=model_filename),
+                    fraction=downloaded / total_size if total_size > 0 else None,
+                    transferred_bytes=downloaded,
+                    total_bytes=total_size if total_size > 0 else None,
+                    cancellable=True,
+                )
 
         target_path = os.path.join(self.model_folder, model_filename)
+        partial_path = target_path + ".part"
         os.makedirs(self.model_folder, exist_ok=True)
-        urllib.request.urlretrieve(url, target_path, reporthook=update_progress)
+        task = current_download_task()
+        try:
+            urllib.request.urlretrieve(url, partial_path, reporthook=update_progress)
+            if task is not None:
+                task.update(cancellable=False, phase=_("Finalizing model"))
+            os.replace(partial_path, target_path)
+        except Exception:
+            if os.path.exists(partial_path):
+                os.remove(partial_path)
+            raise
 
     def is_model_installed(self, model_name):
         return os.path.exists(os.path.join(self.model_folder, "ggml-" + model_name + ".bin")) and not self.downloading.get(model_name)

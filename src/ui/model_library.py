@@ -2,6 +2,7 @@ import threading
 from dataclasses import dataclass
 from typing import List
 from gi.repository import Gtk, Adw, GLib, Gdk, Pango
+from ..utility.download_manager import DownloadKind, get_download_manager
 
 @dataclass
 class LibraryModel:
@@ -331,7 +332,52 @@ class ModelLibraryWindow(Adw.Window):
             card.status_stack.set_visible_child_name("download")
 
     def install_model(self, key):
-        threading.Thread(target=self.handler.install_model, args=(key,)).start()
+        if self.handler.model_installed(key):
+            threading.Thread(
+                target=self.handler.install_model, args=(key,), daemon=True
+            ).start()
+            return
+        threading.Thread(
+            target=self._install_model_worker, args=(key,), daemon=True
+        ).start()
+
+    def _install_model_worker(self, key):
+        manager = get_download_manager()
+        source_id = f"model:{self.handler.key}:{key}"
+        if manager.has_active(source_id):
+            return
+        title = next(
+            (model.name for model in self.all_models if model.id == key), key
+        )
+        with manager.operation(
+            _("Download {name}").format(name=title),
+            kind=DownloadKind.MODEL,
+            source_id=source_id,
+            phase=_("Starting download"),
+            cancellable=False,
+        ) as task:
+            monitoring = threading.Event()
+
+            def monitor():
+                while not monitoring.wait(0.4):
+                    try:
+                        progress = float(self.handler.get_percentage(key))
+                    except Exception:
+                        continue
+                    if progress > 0 and task.snapshot.transferred_bytes is None:
+                        task.update(
+                            phase=_("Downloading model"),
+                            fraction=min(progress, 1.0),
+                        )
+
+            progress_thread = threading.Thread(target=monitor, daemon=True)
+            progress_thread.start()
+            try:
+                self.handler.install_model(key)
+            finally:
+                monitoring.set()
+            if not self.handler.model_installed(key):
+                raise RuntimeError(_("The model download did not complete"))
 
     def update_downloads(self):
         for key, card in self.cards.items():
@@ -370,9 +416,29 @@ class ModelLibraryWindow(Adw.Window):
                 text = entry.get_text()
                 if text:
                     self.handler.set_setting("extra_model_name", text)
-                    threading.Thread(target=self.handler.pull_model, args=(text,)).start()
+                    threading.Thread(
+                        target=self._pull_custom_model_worker,
+                        args=(text,),
+                        daemon=True,
+                    ).start()
                     self.refresh_library(None)
             d.close()
             
         dialog.connect("response", on_response)
         dialog.present()
+
+    def _pull_custom_model_worker(self, model):
+        manager = get_download_manager()
+        source_id = f"model:{self.handler.key}:{model}"
+        if manager.has_active(source_id):
+            return
+        with manager.operation(
+            _("Download {name}").format(name=model),
+            kind=DownloadKind.MODEL,
+            source_id=source_id,
+            phase=_("Downloading model"),
+            cancellable=False,
+        ):
+            self.handler.pull_model(model)
+            if not self.handler.model_installed(model):
+                raise RuntimeError(_("The model download did not complete"))

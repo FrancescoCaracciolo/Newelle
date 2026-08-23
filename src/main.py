@@ -16,6 +16,7 @@ from .window import MainWindow
 from .ui.shortcuts import Shortcuts
 from .ui.thread_editing import ThreadEditing
 from .ui.scheduled_tasks import ScheduledTasksWindow
+from .ui.downloads import DownloadsWindow
 from .ui.mini_window import MiniWindow
 
 
@@ -258,6 +259,9 @@ class MyApp(Adw.Application):
         action = Gio.SimpleAction.new("scheduled_tasks", None)
         action.connect('activate', self.scheduled_tasks_action)
         self.add_action(action)
+        action = Gio.SimpleAction.new("downloads", None)
+        action.connect('activate', self.downloads_action)
+        self.add_action(action)
         action = Gio.SimpleAction.new("extension", None)
         action.connect('activate', self.extension_action)
         self.add_action(action)
@@ -306,6 +310,18 @@ class MyApp(Adw.Application):
     def scheduled_tasks_action(self, *a):
         scheduled_tasks = ScheduledTasksWindow(self)
         scheduled_tasks.present()
+
+    def downloads_action(self, *a):
+        window = getattr(self, "downloads_window", None)
+        if window is None:
+            window = DownloadsWindow(self)
+            window.connect("close-request", self._downloads_window_closed)
+            self.downloads_window = window
+        window.present()
+
+    def _downloads_window_closed(self, *_args):
+        self.downloads_window = None
+        return False
 
     def settings_action(self, *a): 
         settings = Settings(self, self.win.controller)
@@ -357,24 +373,35 @@ class MyApp(Adw.Application):
             self.mini_win.close()
         from .utility.command_runner import get_command_execution_manager
         from .utility.command_sessions import get_command_session_manager
+        from .utility.download_manager import get_download_manager
 
         legacy_running = any(
             element.poll() is None for element in self.win.streams
         )
         command_running = bool(get_command_execution_manager().list_all())
         session_running = bool(get_command_session_manager().list_all())
-        if not legacy_running and not command_running and not session_running:
+        downloads_running = get_download_manager().list(active=True)
+        if not legacy_running and not command_running and not session_running and not downloads_running:
             settings = Gio.Settings.new('io.github.qwersyk.Newelle')
             settings.set_int("window-width", self.win.get_width())
             settings.set_int("window-height", self.win.get_height())
             self.win.controller.close_application()
             return False
         else:
+            if downloads_running:
+                heading = _("Downloads or installations are still running")
+                body = _(
+                    "Closing Newelle can leave non-cancellable installations "
+                    "incomplete. Cancellable downloads will be asked to stop."
+                )
+            else:
+                heading = _("Terminal commands are still running in the background")
+                body = _("When you close the window, they will be automatically terminated")
             dialog = Adw.MessageDialog(
                 transient_for=self.win,
-                heading=_("Terminal commands are still running in the background"),
-                body=_("When you close the window, they will be automatically terminated"),
-                body_use_markup=True
+                heading=heading,
+                body=body,
+                body_use_markup=True,
             )
             dialog.add_response("cancel", _("Cancel"))
             dialog.add_response("close", _("Close"))
@@ -392,6 +419,10 @@ class MyApp(Adw.Application):
                     i.terminate()
             from .utility.command_runner import shutdown_command_executions
             from .utility.command_sessions import shutdown_command_sessions
+            from .utility.download_manager import get_download_manager
+            for task in get_download_manager().list(active=True):
+                if task.cancellable:
+                    get_download_manager().cancel(task.task_id)
             shutdown_command_executions()
             shutdown_command_sessions()
             self.win.controller.close_application()

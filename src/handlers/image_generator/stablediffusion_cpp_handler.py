@@ -3,9 +3,16 @@ from ...handlers.extra_settings import ExtraSettings
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
 from ...utility.media import get_image_path
 from ...utility.background_process import BackgroundProcess
+from ...utility.download_manager import (
+    DownloadCancelled,
+    DownloadKind,
+    current_download_task,
+    get_download_manager,
+)
 from ...tools import Tool, ToolResult
 from ...handlers import ErrorSeverity
 from ...ui.model_library import ModelLibraryWindow, LibraryModel
+from gettext import gettext as _
 import subprocess
 import os
 import platform
@@ -1176,7 +1183,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
         self.downloading[model_id] = {"status": True, "progress": 0.0, "files_done": 0, "files_total": 0}
         GLib.idle_add(self.settings_update)
-        threading.Thread(target=self._download_variant, args=(model_id,), daemon=True).start()
+        self._download_variant(model_id)
 
     def _download_variant(self, model_id: str):
         """Download every file for a variant, with progress reporting."""
@@ -1234,6 +1241,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             print(f"Failed to install {model_id}: {e}")
             import traceback
             traceback.print_exc()
+            self.downloading.pop(model_id, None)
+            raise
         finally:
             if model_id in self.downloading:
                 self.downloading[model_id]["status"] = False
@@ -1248,23 +1257,41 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
     def _download_file(self, url, dest, model_id, idx, total):
         tmp_path = dest + ".part"
+        task = current_download_task()
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         try:
             with requests.get(url, stream=True, timeout=300) as resp:
                 resp.raise_for_status()
-                total_bytes = int(resp.headers.get("content-length", 0)) or 1
+                total_bytes = int(resp.headers.get("content-length", 0))
                 downloaded = 0
                 first_chunk = None
+                if task is not None:
+                    task.update(
+                        phase=_("Downloading {name}").format(name=os.path.basename(dest)),
+                        reset_progress=True,
+                        cancellable=True,
+                    )
                 with open(tmp_path, "wb") as f:
                     for chunk in resp.iter_content(chunk_size=1024 * 256):
                         if not chunk:
                             continue
+                        if task is not None:
+                            task.check_cancelled()
                         if first_chunk is None:
                             first_chunk = chunk
                         f.write(chunk)
                         downloaded += len(chunk)
-                        self._advance_progress(model_id, idx, total, downloaded / total_bytes)
+                        file_progress = downloaded / total_bytes if total_bytes > 0 else 0.0
+                        self._advance_progress(model_id, idx, total, file_progress)
+                        if task is not None:
+                            task.update(
+                                fraction=file_progress if total_bytes > 0 else None,
+                                transferred_bytes=downloaded,
+                                total_bytes=total_bytes if total_bytes > 0 else None,
+                            )
             self._validate_downloaded_file(tmp_path, dest, first_chunk)
+            if task is not None:
+                task.update(cancellable=False, phase=_("Finalizing model file"))
             os.replace(tmp_path, dest)
             self._advance_progress(model_id, idx, total, 1.0)
         except Exception:
@@ -2580,7 +2607,17 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             self.progress_bar.set_fraction(fraction)
             return False
 
+        manager = get_download_manager()
+        task = manager.create_task(
+            _("Install {name}").format(name=asset["name"]),
+            kind=DownloadKind.RUNTIME,
+            source_id=f"runtime:{self.key}:{asset['name']}",
+            phase=_("Downloading runtime"),
+            cancellable=True,
+        )
+        tmp_dir = None
         try:
+            task.check_cancelled()
             GLib.idle_add(append_log, f"Downloading {asset['name']}...\n")
             GLib.idle_add(set_progress, 0.0)
 
@@ -2594,14 +2631,25 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
             with open(tmp_file, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
+                    task.check_cancelled()
                     f.write(chunk)
                     downloaded += len(chunk)
+                    task.update(
+                        fraction=downloaded / total if total > 0 else None,
+                        transferred_bytes=downloaded,
+                        total_bytes=total if total > 0 else None,
+                    )
                     if total > 0:
                         progress = (downloaded / total) * 0.7
                         GLib.idle_add(set_progress, progress)
 
             GLib.idle_add(set_progress, 0.7)
             GLib.idle_add(append_log, "Download complete. Extracting...\n")
+            task.update(
+                phase=_("Installing runtime"),
+                reset_progress=True,
+                cancellable=False,
+            )
 
             abs_sd_path = os.path.abspath(self.sd_cpp_path)
             if os.path.exists(abs_sd_path):
@@ -2651,11 +2699,18 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             GLib.idle_add(lambda: carousel.scroll_to(carousel.get_nth_page(5), True))
             GLib.idle_add(lambda: self.settings_update())
             self.set_setting("gpu_acceleration", asset.get("backend") != "cpu")
+            task.complete(_("Installed"))
 
+        except DownloadCancelled:
+            task.cancelled(_("Cancelled"))
         except Exception as e:
+            task.fail(str(e), _("Failed"))
             GLib.idle_add(append_log, f"\nError: {e}\n")
             import traceback
             GLib.idle_add(append_log, traceback.format_exc())
+        finally:
+            if tmp_dir is not None:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # ── Build from source ──────────────────────────────────────────────
 

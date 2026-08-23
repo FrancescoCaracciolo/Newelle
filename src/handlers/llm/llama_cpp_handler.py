@@ -2,7 +2,14 @@ from ...handlers.llm import OpenAIHandler
 from ...handlers.extra_settings import ExtraSettings
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
 from ...utility.background_process import BackgroundProcess
+from ...utility.download_manager import (
+    DownloadCancelled,
+    DownloadKind,
+    current_download_task,
+    get_download_manager,
+)
 from ...handlers import ErrorSeverity
+from gettext import gettext as _
 import subprocess
 import os
 import platform
@@ -442,11 +449,33 @@ class LlamaCPPHandler(OpenAIHandler):
             files = api.list_repo_files(repo_id)
             gguf_file = self.select_best_gguf(files)
             self.downloading[model] = {"status": True, "progress": 0.0}
+            task = current_download_task()
+            if task is not None:
+                task.update(
+                    phase=_("Downloading {name}").format(name=gguf_file),
+                    reset_progress=True,
+                    cancellable=True,
+                )
+            incomplete_before = {
+                os.path.join(root, filename)
+                for root, _directories, filenames in os.walk(self.model_folder)
+                for filename in filenames
+                if filename.endswith(".incomplete")
+            }
+            downloaded_path = os.path.join(self.model_folder, gguf_file)
+            downloaded_path_existed = os.path.exists(downloaded_path)
             def update_progress(progress):
                 completed = progress.get("completed", 0)
-                total = progress.get("total", 1) # Avoid division by zero
-                percentage = (completed / total)
+                total = progress.get("total") or 0
+                percentage = completed / total if total > 0 else 0.0
                 self.downloading[model]["progress"] = percentage
+                if task is not None:
+                    task.check_cancelled()
+                    task.update(
+                        fraction=percentage if total > 0 else None,
+                        transferred_bytes=completed,
+                        total_bytes=total if total > 0 else None,
+                    )
             class TqdmProgress:
                 def __init__(self, *args, **kwargs):
                     self.n = kwargs.get('initial', 0)
@@ -469,9 +498,32 @@ class LlamaCPPHandler(OpenAIHandler):
                 def set_description(self, *args, **kwargs):
                     pass
 
-            hf_hub_download(repo_id, gguf_file, local_dir=self.model_folder, local_dir_use_symlinks=False, tqdm_class=TqdmProgress)
-            os.rename(os.path.join(self.model_folder, gguf_file), os.path.join(self.model_folder, model + ".gguf"))
-            self.settings_update()
+            try:
+                hf_hub_download(repo_id, gguf_file, local_dir=self.model_folder, local_dir_use_symlinks=False, tqdm_class=TqdmProgress)
+                if task is not None:
+                    task.update(cancellable=False, phase=_("Finalizing model"))
+                os.rename(downloaded_path, os.path.join(self.model_folder, model + ".gguf"))
+                self.settings_update()
+            except DownloadCancelled:
+                for root, _directories, filenames in os.walk(self.model_folder):
+                    for filename in filenames:
+                        partial = os.path.join(root, filename)
+                        if (
+                            filename.endswith(".incomplete")
+                            and partial not in incomplete_before
+                        ):
+                            try:
+                                os.remove(partial)
+                            except OSError:
+                                pass
+                if not downloaded_path_existed:
+                    try:
+                        os.remove(downloaded_path)
+                    except FileNotFoundError:
+                        pass
+                raise
+            finally:
+                self.downloading.pop(model, None)
 
     def open_model_library(self, button):
         root = button.get_root()
@@ -1151,6 +1203,15 @@ class LlamaCPPHandler(OpenAIHandler):
             self.progress_bar.set_fraction(fraction)
             return False
 
+        manager = get_download_manager()
+        task = manager.create_task(
+            _("Install {name}").format(name=asset["name"]),
+            kind=DownloadKind.RUNTIME,
+            source_id=f"runtime:{self.key}:{asset['name']}",
+            phase=_("Downloading runtime"),
+            cancellable=True,
+        )
+        tmp_dir = None
         try:
             GLib.idle_add(append_log, f"Downloading {asset['name']}...\n")
             GLib.idle_add(set_progress, 0.0)
@@ -1165,14 +1226,25 @@ class LlamaCPPHandler(OpenAIHandler):
 
             with open(tmp_file, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
+                    task.check_cancelled()
                     f.write(chunk)
                     downloaded += len(chunk)
+                    task.update(
+                        fraction=downloaded / total if total > 0 else None,
+                        transferred_bytes=downloaded,
+                        total_bytes=total if total > 0 else None,
+                    )
                     if total > 0:
                         progress = (downloaded / total) * 0.7
                         GLib.idle_add(set_progress, progress)
 
             GLib.idle_add(set_progress, 0.7)
             GLib.idle_add(append_log, "Download complete. Extracting...\n")
+            task.update(
+                phase=_("Installing runtime"),
+                reset_progress=True,
+                cancellable=False,
+            )
 
             abs_llama_cpp_path = os.path.abspath(self.llama_cpp_path)
             if os.path.exists(abs_llama_cpp_path):
@@ -1221,11 +1293,18 @@ class LlamaCPPHandler(OpenAIHandler):
             # Kept for backward compatibility with the pre-sycl load_model logic
             self.set_setting("prebuilt_cuda", backend == "cuda")
             self.set_setting("gpu_acceleration", True)
+            task.complete(_("Installed"))
 
+        except DownloadCancelled:
+            task.cancelled(_("Cancelled"))
         except Exception as e:
+            task.fail(str(e), _("Failed"))
             GLib.idle_add(append_log, f"\nError: {e}\n")
             import traceback
             GLib.idle_add(append_log, traceback.format_exc())
+        finally:
+            if tmp_dir is not None:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def start_installation(self, carousel):
         backend = "cpu"

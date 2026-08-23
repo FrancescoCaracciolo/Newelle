@@ -67,6 +67,7 @@ ui_sources = [
   'ui/presentation.py',
   'ui/thread_editing.py',
   'ui/scheduled_tasks.py',
+  'ui/downloads.py',
   'ui/screenrecorder.py',
   'ui/shortcuts.py',
   'ui/mini_window.py',
@@ -261,6 +262,7 @@ utility_sources = [
   'utility/command_runner.py',
   'utility/command_sessions.py',
   'utility/background_process.py',
+  'utility/download_manager.py',
   'utility/tool_call_group.py',
 ]
 
