@@ -23,7 +23,11 @@ import shutil
 import tarfile
 import tempfile
 from gi.repository import Gtk, Adw, GLib, Gdk
-from ...ui.model_library import ModelLibraryWindow, LibraryModel
+from ...ui.model_library import (
+    LibraryModel,
+    ModelLibraryWindow,
+)
+from ...utility.model_icons import get_model_icon
 import requests
 
 class LlamaCPPHandler(OpenAIHandler):
@@ -358,16 +362,24 @@ class LlamaCPPHandler(OpenAIHandler):
         data = self.library_data
         models = []
         for model in data:
+            tags = model["tags"] + model["capabilities"].split("\n")
+            icon_name, icon_color = get_model_icon(
+                model["title"],
+                tags,
+            )
             models.append(LibraryModel(
                 id=model["title"],
                 name=model["title"],
                 description=model["description"],
-                tags=model["tags"] + model["capabilities"].split("\n"),
+                tags=tags,
                 is_pinned=self.model_installed(model["title"]),
                 is_installed=self.model_installed(model["title"]),
+                icon_name=icon_name,
+                icon_color=icon_color,
             ))
         for model_name, model_file in self.models:
             if model_name not in [m.id for m in models]:
+                icon_name, icon_color = get_model_icon(model_name)
                 models = [LibraryModel(
                     id=model_name,
                     name=model_name,
@@ -375,6 +387,8 @@ class LlamaCPPHandler(OpenAIHandler):
                     tags=["custom"],
                     is_pinned=True,
                     is_installed=True,
+                    icon_name=icon_name,
+                    icon_color=icon_color,
                 )] + models
         return models
 

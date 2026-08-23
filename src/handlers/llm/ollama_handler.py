@@ -127,6 +127,7 @@ class OllamaHandler(LLMHandler):
 
     def fetch_models(self):
         from ...ui.model_library import LibraryModel
+        from ...utility.model_icons import get_model_icon
         models = []
         unique_keys = set()
         
@@ -153,6 +154,7 @@ class OllamaHandler(LLMHandler):
                  
             tags = self.get_display_tags(key)
             is_installed = self.model_installed(key)
+            icon_name, icon_color = get_model_icon(key, tags)
             
             return LibraryModel(
                 id=key,
@@ -160,7 +162,9 @@ class OllamaHandler(LLMHandler):
                 description=desc,
                 tags=tags,
                 is_installed=is_installed,
-                is_pinned=pinned
+                is_pinned=pinned,
+                icon_name=icon_name,
+                icon_color=icon_color,
             )
 
         # 1. Pinned Models

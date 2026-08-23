@@ -25,6 +25,8 @@ class LibraryModel:
     tags: list[str]
     is_installed: bool = False
     is_pinned: bool = False
+    icon_name: str | None = None
+    icon_color: str | None = None
 
 
 class ModelLibraryWindow(Adw.Window):
@@ -299,6 +301,46 @@ class ModelLibraryWindow(Adw.Window):
         )
         self._css_provider = provider
 
+    @staticmethod
+    def _apply_model_icon_color(icon: Gtk.Image, color: str | None):
+        """Apply a handler-provided brand color without allowing arbitrary CSS."""
+        if not color:
+            return
+
+        rgba = Gdk.RGBA()
+        if not rgba.parse(color):
+            return
+
+        red = round(rgba.red * 255)
+        green = round(rgba.green * 255)
+        blue = round(rgba.blue * 255)
+        foreground = f"rgba({red}, {green}, {blue}, {rgba.alpha:.3f})"
+        luminance = (
+            0.2126 * rgba.red
+            + 0.7152 * rgba.green
+            + 0.0722 * rgba.blue
+        )
+        if luminance < 0.06:
+            background = "rgba(255, 255, 255, 0.88)"
+        elif luminance > 0.94:
+            background = "rgba(0, 0, 0, 0.48)"
+        else:
+            background = f"rgba({red}, {green}, {blue}, 0.16)"
+
+        provider = Gtk.CssProvider()
+        provider.load_from_data(
+            (
+                ".model-library-icon {"
+                f"color: {foreground}; background-color: {background};"
+                "}"
+            ).encode()
+        )
+        icon.get_style_context().add_provider(
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        )
+        icon._model_library_color_provider = provider
+
     def _replace_models(self, models):
         self.all_models = list(models or [])
         self.all_model_keys = [model.id for model in self.all_models]
@@ -393,7 +435,7 @@ class ModelLibraryWindow(Adw.Window):
 
     def _show_empty_state(self):
         if not self.all_models:
-            self.empty_page.set_icon_name("magic-wand-symbolic")
+            self.empty_page.set_icon_name("brain-augemnted-symbolic")
             self.empty_page.set_title(_("No models available"))
             self.empty_page.set_description(
                 _("Refresh the library to check for available models.")
@@ -499,7 +541,7 @@ class ModelLibraryWindow(Adw.Window):
             spacing=11,
         )
         model_icon = Gtk.Image(
-            icon_name="magic-wand-symbolic",
+            icon_name=model.icon_name or "brain-augemnted-symbolic",
             pixel_size=22,
             halign=Gtk.Align.START,
             valign=Gtk.Align.START,
@@ -507,6 +549,7 @@ class ModelLibraryWindow(Adw.Window):
             height_request=44,
         )
         model_icon.add_css_class("model-library-icon")
+        self._apply_model_icon_color(model_icon, model.icon_color)
         heading.append(model_icon)
 
         title_box = Gtk.Box(

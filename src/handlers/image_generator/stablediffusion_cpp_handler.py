@@ -11,7 +11,11 @@ from ...utility.download_manager import (
 )
 from ...tools import Tool, ToolResult
 from ...handlers import ErrorSeverity
-from ...ui.model_library import ModelLibraryWindow, LibraryModel
+from ...ui.model_library import (
+    LibraryModel,
+    ModelLibraryWindow,
+)
+from ...utility.model_icons import get_model_icon
 from gettext import gettext as _
 import subprocess
 import os
@@ -1148,13 +1152,20 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         models = []
         for entry in SD_MODELS:
             description = entry["description"]
+            tags = list(entry.get("tags", []))
+            icon_name, icon_color = get_model_icon(
+                entry["display"],
+                tags,
+            )
             models.append(LibraryModel(
                 id=entry["id"],
                 name=entry["display"],
                 description=description,
-                tags=list(entry.get("tags", [])),
+                tags=tags,
                 is_pinned=False,
                 is_installed=self.model_installed(entry["id"]),
+                icon_name=icon_name,
+                icon_color=icon_color,
             ))
         return models
 

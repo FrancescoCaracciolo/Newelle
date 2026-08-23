@@ -250,6 +250,7 @@ utility_sources = [
   'utility/profile_settings.py',
   'utility/audio_recorder.py',
   'utility/message_chunk.py',
+  'utility/model_icons.py',
   'utility/website_scraper.py',
   'utility/stdout_capture.py',
   'utility/wakeword_detector.py',

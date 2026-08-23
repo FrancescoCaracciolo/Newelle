@@ -6,6 +6,7 @@ from ...utility.download_manager import current_download_task
 from .stt import STTHandler
 from ...handlers import ErrorSeverity, ExtraSettings
 from ...ui.model_library import ModelLibraryWindow, LibraryModel
+from ...utility.model_icons import get_model_icon
 import os
 import subprocess
 import threading
@@ -426,6 +427,7 @@ class WhisperCPPHandler(STTHandler):
     def fetch_models(self):
         """Fetch models for the model library window"""
         models = []
+        icon_name, icon_color = get_model_icon("whisper")
         for model in WHISPER_MODELS:
             models.append(LibraryModel(
                 id=model["model_name"],
@@ -434,6 +436,8 @@ class WhisperCPPHandler(STTHandler):
                 tags=["whisper", "stt"],
                 is_pinned=False,
                 is_installed=self.is_model_installed(model["model_name"]),
+                icon_name=icon_name,
+                icon_color=icon_color,
             ))
         return models
 
