@@ -355,7 +355,15 @@ class MyApp(Adw.Application):
     def close_window(self, *a):
         if getattr(self, "mini_win", None) is not None and self.mini_win.get_visible():
             self.mini_win.close()
-        if all(element.poll() is not None for element in self.win.streams):
+        from .utility.command_runner import get_command_execution_manager
+        from .utility.command_sessions import get_command_session_manager
+
+        legacy_running = any(
+            element.poll() is None for element in self.win.streams
+        )
+        command_running = bool(get_command_execution_manager().list_all())
+        session_running = bool(get_command_session_manager().list_all())
+        if not legacy_running and not command_running and not session_running:
             settings = Gio.Settings.new('io.github.qwersyk.Newelle')
             settings.set_int("window-width", self.win.get_width())
             settings.set_int("window-height", self.win.get_height())
@@ -364,7 +372,7 @@ class MyApp(Adw.Application):
         else:
             dialog = Adw.MessageDialog(
                 transient_for=self.win,
-                heading=_("Terminal threads are still running in the background"),
+                heading=_("Terminal commands are still running in the background"),
                 body=_("When you close the window, they will be automatically terminated"),
                 body_use_markup=True
             )
@@ -380,7 +388,12 @@ class MyApp(Adw.Application):
     def close_message(self,a,status):
         if status=="close":
             for i in self.win.streams:
-                i.terminate()
+                if i.poll() is None:
+                    i.terminate()
+            from .utility.command_runner import shutdown_command_executions
+            from .utility.command_sessions import shutdown_command_sessions
+            shutdown_command_executions()
+            shutdown_command_sessions()
             self.win.controller.close_application()
             self.win.destroy()
     
@@ -469,8 +482,10 @@ class MyApp(Adw.Application):
             self.win.stop_chat()
     
     def do_shutdown(self):
+        from .utility.command_runner import shutdown_command_executions
         from .utility.command_sessions import shutdown_command_sessions
 
+        shutdown_command_executions()
         shutdown_command_sessions()
         self.win.save_chat()
         settings = Gio.Settings.new('io.github.qwersyk.Newelle')
