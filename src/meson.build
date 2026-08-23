@@ -263,6 +263,7 @@ utility_sources = [
   'utility/command_sessions.py',
   'utility/background_process.py',
   'utility/download_manager.py',
+  'utility/huggingface_download.py',
   'utility/tool_call_group.py',
 ]
 

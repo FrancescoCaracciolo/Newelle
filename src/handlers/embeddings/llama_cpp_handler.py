@@ -9,6 +9,7 @@ from ...utility.download_manager import (
     current_download_task,
     get_download_manager,
 )
+from ...utility.huggingface_download import download_huggingface_file
 from ...ui.model_library import ModelLibraryWindow, LibraryModel
 from gettext import gettext as _
 import subprocess
@@ -399,7 +400,7 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
             parts = gguf_link.split("huggingface.co/")[-1].split("/")
             repo_id = f"{parts[0]}/{parts[1]}"
             print(f"Repo ID: {repo_id}")
-            from huggingface_hub import hf_hub_download, HfApi
+            from huggingface_hub import HfApi
             api = HfApi()
             files = api.list_repo_files(repo_id)
             gguf_file = self.select_best_gguf(files)
@@ -411,72 +412,20 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
                     reset_progress=True,
                     cancellable=True,
                 )
-            incomplete_before = {
-                os.path.join(root, filename)
-                for root, _directories, filenames in os.walk(self.model_folder)
-                for filename in filenames
-                if filename.endswith(".incomplete")
-            }
-            downloaded_path = os.path.join(self.model_folder, gguf_file)
-            downloaded_path_existed = os.path.exists(downloaded_path)
-            def update_progress(progress):
-                completed = progress.get("completed", 0)
-                total = progress.get("total") or 0
-                percentage = completed / total if total > 0 else 0.0
-                self.downloading[model]["progress"] = percentage
-                if task is not None:
-                    task.check_cancelled()
-                    task.update(
-                        fraction=percentage if total > 0 else None,
-                        transferred_bytes=completed,
-                        total_bytes=total if total > 0 else None,
-                    )
-            class TqdmProgress:
-                def __init__(self, *args, **kwargs):
-                    self.n = kwargs.get('initial', 0)
-                    self.total = kwargs.get('total', 1)
-                    update_progress({"completed": self.n, "total": self.total})
-
-                def update(self, n=1):
-                    self.n += n
-                    update_progress({"completed": self.n, "total": self.total})
-
-                def close(self):
-                    pass
-
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *args):
-                    self.close()
-
-                def set_description(self, *args, **kwargs):
-                    pass
-
             try:
-                hf_hub_download(repo_id, gguf_file, local_dir=self.model_folder, local_dir_use_symlinks=False, tqdm_class=TqdmProgress)
-                if task is not None:
-                    task.update(cancellable=False, phase=_("Finalizing model"))
-                os.rename(downloaded_path, os.path.join(self.model_folder, model + ".gguf"))
+                def update_local_progress(transferred, total):
+                    self.downloading[model]["progress"] = (
+                        transferred / total if total else 0.0
+                    )
+
+                download_huggingface_file(
+                    repo_id,
+                    gguf_file,
+                    os.path.join(self.model_folder, model + ".gguf"),
+                    task=task,
+                    progress_callback=update_local_progress,
+                )
                 self.settings_update()
-            except DownloadCancelled:
-                for root, _directories, filenames in os.walk(self.model_folder):
-                    for filename in filenames:
-                        partial = os.path.join(root, filename)
-                        if (
-                            filename.endswith(".incomplete")
-                            and partial not in incomplete_before
-                        ):
-                            try:
-                                os.remove(partial)
-                            except OSError:
-                                pass
-                if not downloaded_path_existed:
-                    try:
-                        os.remove(downloaded_path)
-                    except FileNotFoundError:
-                        pass
-                raise
             finally:
                 self.downloading.pop(model, None)
 

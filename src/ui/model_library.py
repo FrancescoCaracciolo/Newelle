@@ -2,7 +2,11 @@ import threading
 from dataclasses import dataclass
 from typing import List
 from gi.repository import Gtk, Adw, GLib, Gdk, Pango
-from ..utility.download_manager import DownloadKind, get_download_manager
+from ..utility.download_manager import (
+    DownloadCancelled,
+    DownloadKind,
+    get_download_manager,
+)
 
 @dataclass
 class LibraryModel:
@@ -83,6 +87,7 @@ class ModelLibraryWindow(Adw.Window):
         self.batch_size = 50
         self.all_model_keys = [] # List of model keys (str)
         self.filtered_keys = [] # List of filtered keys
+        self.pending_downloads = set()
         
         self.cards = {} # key -> widget
         self.load_models()
@@ -322,8 +327,19 @@ class ModelLibraryWindow(Adw.Window):
         key = card.model_key
         is_installed = self.handler.model_installed(key)
         downloading = self.handler.get_percentage(key)
-        
-        if downloading > 0 and downloading < 1:
+        active_task = get_download_manager().find_active(
+            f"model:{self.handler.key}:{key}"
+        )
+        if active_task is not None and active_task.fraction is not None:
+            downloading = active_task.fraction
+
+        if key in self.pending_downloads or active_task is not None:
+            card.status_stack.set_visible_child_name("progress")
+            if downloading > 0:
+                card.progress_bar.set_fraction(min(float(downloading), 1.0))
+            else:
+                card.progress_bar.pulse()
+        elif downloading > 0 and downloading < 1:
             card.status_stack.set_visible_child_name("progress")
             card.progress_bar.set_fraction(downloading)
         elif is_installed:
@@ -337,6 +353,14 @@ class ModelLibraryWindow(Adw.Window):
                 target=self.handler.install_model, args=(key,), daemon=True
             ).start()
             return
+        if key in self.pending_downloads:
+            return
+        self.pending_downloads.add(key)
+        card = self.cards.get(key)
+        if card is not None:
+            card.progress_bar.set_fraction(0.0)
+            card.progress_bar.pulse()
+            card.status_stack.set_visible_child_name("progress")
         threading.Thread(
             target=self._install_model_worker, args=(key,), daemon=True
         ).start()
@@ -344,40 +368,52 @@ class ModelLibraryWindow(Adw.Window):
     def _install_model_worker(self, key):
         manager = get_download_manager()
         source_id = f"model:{self.handler.key}:{key}"
-        if manager.has_active(source_id):
-            return
-        title = next(
-            (model.name for model in self.all_models if model.id == key), key
-        )
-        with manager.operation(
-            _("Download {name}").format(name=title),
-            kind=DownloadKind.MODEL,
-            source_id=source_id,
-            phase=_("Starting download"),
-            cancellable=False,
-        ) as task:
-            monitoring = threading.Event()
+        try:
+            if manager.has_active(source_id):
+                return
+            title = next(
+                (model.name for model in self.all_models if model.id == key), key
+            )
+            with manager.operation(
+                _("Download {name}").format(name=title),
+                kind=DownloadKind.MODEL,
+                source_id=source_id,
+                phase=_("Starting download"),
+                cancellable=False,
+            ) as task:
+                monitoring = threading.Event()
 
-            def monitor():
-                while not monitoring.wait(0.4):
-                    try:
-                        progress = float(self.handler.get_percentage(key))
-                    except Exception:
-                        continue
-                    if progress > 0 and task.snapshot.transferred_bytes is None:
-                        task.update(
-                            phase=_("Downloading model"),
-                            fraction=min(progress, 1.0),
-                        )
+                def monitor():
+                    while not monitoring.wait(0.4):
+                        try:
+                            progress = float(self.handler.get_percentage(key))
+                        except Exception:
+                            continue
+                        if progress > 0 and task.snapshot.transferred_bytes is None:
+                            task.update(
+                                phase=_("Downloading model"),
+                                fraction=min(progress, 1.0),
+                            )
 
-            progress_thread = threading.Thread(target=monitor, daemon=True)
-            progress_thread.start()
-            try:
-                self.handler.install_model(key)
-            finally:
-                monitoring.set()
-            if not self.handler.model_installed(key):
-                raise RuntimeError(_("The model download did not complete"))
+                progress_thread = threading.Thread(target=monitor, daemon=True)
+                progress_thread.start()
+                try:
+                    self.handler.install_model(key)
+                finally:
+                    monitoring.set()
+                if not self.handler.model_installed(key):
+                    raise RuntimeError(_("The model download did not complete"))
+        except DownloadCancelled:
+            pass
+        finally:
+            GLib.idle_add(self._finish_model_operation, key)
+
+    def _finish_model_operation(self, key):
+        self.pending_downloads.discard(key)
+        card = self.cards.get(key)
+        if card is not None:
+            self.update_card_state(card)
+        return GLib.SOURCE_REMOVE
 
     def update_downloads(self):
         for key, card in self.cards.items():
