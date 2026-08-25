@@ -210,7 +210,6 @@ class LlamaCPPHandler(OpenAIHandler):
                 "Custom Models Directory",
                 "Additional directory to scan for .gguf model files (leave empty to disable)",
                 "",
-                update_settings=True,
             )
         )
 
@@ -220,7 +219,6 @@ class LlamaCPPHandler(OpenAIHandler):
                 "Custom Arguments",
                 "Additional command-line arguments passed to llama-server (e.g. --threads 4 --no-mmap). Leave empty for none.",
                 "",
-                update_settings=True,
             )
         )
 
