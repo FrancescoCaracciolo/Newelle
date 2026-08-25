@@ -220,6 +220,13 @@ def validate_catalog(payload):
         raise CatalogValidationError("catalog must be a JSON object")
     if payload.get("schema_version") != CATALOG_SCHEMA_VERSION:
         raise CatalogValidationError("unsupported catalog schema version")
+    catalog_revision = payload.get("catalog_revision", 0)
+    if (
+        isinstance(catalog_revision, bool)
+        or not isinstance(catalog_revision, int)
+        or not 0 <= catalog_revision <= 2**31 - 1
+    ):
+        raise CatalogValidationError("catalog_revision must be a non-negative integer")
     applications = payload.get("applications")
     if not isinstance(applications, list) or not applications:
         raise CatalogValidationError("catalog applications must be a non-empty list")
@@ -765,6 +772,19 @@ def _load_cached_catalog(path):
         return None
 
 
+def _catalog_revision(catalog):
+    return catalog.get("catalog_revision", 0) if catalog is not None else 0
+
+
+def _select_initial_catalog(bundled_catalog, cached_catalog, minimum_revision=0):
+    if (
+        cached_catalog is not None
+        and _catalog_revision(cached_catalog) >= minimum_revision
+    ):
+        return cached_catalog
+    return bundled_catalog
+
+
 def _save_cached_catalog(path, catalog):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     temporary_path = f"{path}.tmp"
@@ -875,7 +895,17 @@ class ConnectApplicationView(Gtk.Box):
             "NEWELLE_MCP_CATALOG_URL", DEFAULT_CATALOG_URL
         )
         self.cache_path = os.path.join(controller.config_dir, "mcp_servers_catalog.json")
-        self.catalog = _load_cached_catalog(self.cache_path) or load_bundled_catalog()
+        bundled_catalog = load_bundled_catalog()
+        self.minimum_catalog_revision = (
+            _catalog_revision(bundled_catalog)
+            if self.catalog_url == DEFAULT_CATALOG_URL
+            else 0
+        )
+        self.catalog = _select_initial_catalog(
+            bundled_catalog,
+            _load_cached_catalog(self.cache_path),
+            self.minimum_catalog_revision,
+        )
         self.application_rows = []
         self.field_entries = {}
         self.field_definitions = {}
@@ -1114,6 +1144,10 @@ class ConnectApplicationView(Gtk.Box):
                 catalog = fetch_remote_catalog(self.catalog_url)
                 if self.closed:
                     return
+                if _catalog_revision(catalog) < self.minimum_catalog_revision:
+                    raise CatalogValidationError(
+                        "remote catalog revision is older than the bundled catalog"
+                    )
                 _save_cached_catalog(self.cache_path, catalog)
                 GLib.idle_add(self._finish_catalog_refresh, catalog, None, show_error)
             except (CatalogValidationError, OSError, requests.RequestException) as exc:

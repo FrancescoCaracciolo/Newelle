@@ -26,6 +26,7 @@ import tempfile
 from gi.repository import Gtk, Adw, GLib, Gdk
 import requests
 import numpy as np
+from ...ui.build_dependency_warning import BuildDependencyWarning
 
 class LlamaCPPEmbeddingHandler(EmbeddingHandler):
     key = "llamacppembedding"
@@ -637,14 +638,28 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
 
         left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.hw_options = {}
+        dependency_warning = BuildDependencyWarning()
+        main_container.append(dependency_warning)
         group = None
-        for hw in ["CPU", "CPU (OpenBLAS)", "Nvidia (CUDA)", "AMD (ROCm)", "Any GPU (Vulkan)", "Intel (OpenVINO)", "Intel (SYCL FP32)", "Intel (SYCL FP16)"]:
+        backend_options = {
+            "CPU": "cpu",
+            "CPU (OpenBLAS)": "cpu_openblas",
+            "Nvidia (CUDA)": "cuda",
+            "AMD (ROCm)": "rocm",
+            "Any GPU (Vulkan)": "vulkan",
+            "Intel (OpenVINO)": "openvino",
+            "Intel (SYCL FP32)": "sycl-fp32",
+            "Intel (SYCL FP16)": "sycl-fp16",
+        }
+        for hw, backend in backend_options.items():
             btn = Gtk.CheckButton(label=hw, group=group)
             if group is None:
                 group = btn
                 btn.set_active(True)
+            dependency_warning.watch_option(btn, backend)
             self.hw_options[hw] = btn
             left_box.append(btn)
+        dependency_warning.refresh("cpu")
 
         right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, valign=Gtk.Align.CENTER)
         lbl_flags = Gtk.Label(label="Custom CMake Flags (Optional)")

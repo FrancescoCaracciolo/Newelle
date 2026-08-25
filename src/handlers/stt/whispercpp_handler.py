@@ -7,6 +7,7 @@ from .stt import STTHandler
 from ...handlers import ErrorSeverity, ExtraSettings
 from ...ui.model_library import ModelLibraryWindow, LibraryModel
 from ...utility.model_icons import get_model_icon
+from ...ui.build_dependency_warning import BuildDependencyWarning
 import os
 import subprocess
 import threading
@@ -523,14 +524,25 @@ class WhisperCPPHandler(STTHandler):
         # Left side: Hardware options
         left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.hw_options = {}
+        dependency_warning = BuildDependencyWarning()
+        main_container.append(dependency_warning)
         group = None
-        for hw in ["CPU", "CPU (OpenBLAS)", "Nvidia (CUDA)", "AMD (ROCm)", "Any GPU (Vulkan)"]:
+        backend_options = {
+            "CPU": "cpu",
+            "CPU (OpenBLAS)": "cpu_openblas",
+            "Nvidia (CUDA)": "cuda",
+            "AMD (ROCm)": "rocm",
+            "Any GPU (Vulkan)": "vulkan",
+        }
+        for hw, backend in backend_options.items():
             btn = Gtk.CheckButton(label=hw, group=group)
             if group is None:
                 group = btn
                 btn.set_active(True)
+            dependency_warning.watch_option(btn, backend)
             self.hw_options[hw] = btn
             left_box.append(btn)
+        dependency_warning.refresh("cpu")
 
         # Right side: CMake flags
         right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, valign=Gtk.Align.CENTER)
