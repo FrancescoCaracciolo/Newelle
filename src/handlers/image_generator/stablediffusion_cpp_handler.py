@@ -3,6 +3,7 @@ from ...handlers.extra_settings import ExtraSettings
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
 from ...utility.media import get_image_path
 from ...utility.background_process import BackgroundProcess
+from ...utility.build_process import BuildCancelled, BuildProcess
 from ...utility.download_manager import (
     DownloadCancelled,
     DownloadKind,
@@ -323,6 +324,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         self._installing = False
         self._server = BackgroundProcess("sd-server")
         self._server.register_atexit()
+        self._build_process = BuildProcess("stable-diffusion.cpp-build")
+        self._build_process.register_atexit()
         self.downloading = {}
 
         for folder in (self.model_folder, self.shared_folder, self.lora_folder):
@@ -2036,6 +2039,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
     def show_install_dialog(self, button):
         win = Adw.Window(title="Install stable-diffusion.cpp")
+        self._build_window = win
         win.set_default_size(700, 760)
         win.set_modal(True)
         try:
@@ -2414,6 +2418,13 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         scroll.set_vexpand(True)
         scroll.set_hexpand(True)
         page4.append(scroll)
+
+        self.stop_build_button = Gtk.Button(label="Stop Build")
+        self.stop_build_button.add_css_class("destructive-action")
+        self.stop_build_button.set_halign(Gtk.Align.CENTER)
+        self.stop_build_button.set_sensitive(False)
+        self.stop_build_button.connect("clicked", self.stop_build)
+        page4.append(self.stop_build_button)
         content.append(page4)
 
         # ── Page 5: Done ───────────────────────────────────────────────
@@ -2750,8 +2761,25 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
         custom_flags = self.entry_cmake.get_text()
 
+        self._build_process.begin()
+        self.stop_build_button.set_sensitive(True)
         carousel.scroll_to(carousel.get_nth_page(4), True)
         threading.Thread(target=self._run_build, args=(backend, carousel, custom_flags), daemon=True).start()
+
+    def stop_build(self, button=None):
+        """Stop the active stable-diffusion.cpp source build."""
+        self._build_process.cancel()
+        if button is None:
+            button = getattr(self, "stop_build_button", None)
+        if button is not None:
+            button.set_sensitive(False)
+
+    def _close_build_window(self):
+        window = getattr(self, "_build_window", None)
+        if window is not None:
+            self._build_window = None
+            window.close()
+        return False
 
     def _run_build(self, backend, carousel, custom_flags=""):
         if not can_escape_sandbox():
@@ -2796,23 +2824,12 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                     if extra_env:
                         env.update(extra_env)
 
-                process = subprocess.Popen(
+                return self._build_process.run(
                     full_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
                     env=env if not is_flatpak() else None,
                     cwd=cwd,
+                    on_output=lambda line: GLib.idle_add(append_log, line),
                 )
-
-                while True:
-                    line = process.stdout.readline()
-                    if not line and process.poll() is not None:
-                        break
-                    if line:
-                        GLib.idle_add(append_log, line)
-                return process.poll() == 0
 
             GLib.idle_add(set_progress, 0.1)
             GLib.idle_add(append_log, "Cloning stable-diffusion.cpp repository...\n")
@@ -2824,6 +2841,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
             clone_cmd = ["git", "clone", "--depth", "1", self.REPO_URL, abs_sd_path]
             if not run_cmd(clone_cmd):
+                if self._build_process.cancel_requested:
+                    raise BuildCancelled()
                 raise Exception("Failed to clone stable-diffusion.cpp repository")
 
             # Initialize submodules (for webp/webm dependencies)
@@ -2831,6 +2850,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             GLib.idle_add(append_log, "Initializing submodules...\n")
             submodule_cmd = ["git", "submodule", "update", "--init", "--recursive"]
             if not run_cmd(submodule_cmd, cwd=abs_sd_path):
+                if self._build_process.cancel_requested:
+                    raise BuildCancelled()
                 GLib.idle_add(append_log, "Warning: submodule init failed, continuing anyway...\n")
 
             GLib.idle_add(set_progress, 0.25)
@@ -2838,6 +2859,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
 
             cmake_configure = ["cmake", "-B", "build"] + cmake_args
             if not run_cmd(cmake_configure, cwd=abs_sd_path):
+                if self._build_process.cancel_requested:
+                    raise BuildCancelled()
                 raise Exception("Failed to configure CMake build")
 
             GLib.idle_add(set_progress, 0.4)
@@ -2848,7 +2871,12 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             num_jobs = multiprocessing.cpu_count()
             cmake_build = ["cmake", "--build", "build", "--config", "Release", "-j", str(num_jobs)]
             if not run_cmd(cmake_build, cwd=abs_sd_path):
+                if self._build_process.cancel_requested:
+                    raise BuildCancelled()
                 raise Exception("Failed to build stable-diffusion.cpp")
+
+            if self._build_process.cancel_requested:
+                raise BuildCancelled()
 
             sd_binary = os.path.join(abs_sd_path, "build", "bin", "sd-cli")
             if not os.path.exists(sd_binary):
@@ -2867,6 +2895,9 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             GLib.idle_add(lambda: self.settings_update())
             self.set_setting("gpu_acceleration", backend != "cpu")
 
+        except BuildCancelled:
+            GLib.idle_add(append_log, "\nBuild stopped by user.\n")
+            GLib.idle_add(self._close_build_window)
         except Exception as e:
             GLib.idle_add(
                 append_log,
@@ -2874,6 +2905,11 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             )
             import traceback
             GLib.idle_add(append_log, traceback.format_exc())
+        finally:
+            GLib.idle_add(
+                lambda: self.stop_build_button.set_sensitive(False)
+                if hasattr(self, "stop_build_button") else False
+            )
 
     def _finish_install(self, win):
         win.close()

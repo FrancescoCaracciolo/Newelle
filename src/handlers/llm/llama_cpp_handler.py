@@ -2,6 +2,7 @@ from ...handlers.llm import OpenAIHandler
 from ...handlers.extra_settings import ExtraSettings
 from ...utility.system import can_escape_sandbox, is_flatpak, get_spawn_command, has_backend, detect_cuda_version
 from ...utility.background_process import BackgroundProcess
+from ...utility.build_process import BuildCancelled, BuildProcess
 from ...utility.download_manager import (
     DownloadCancelled,
     DownloadKind,
@@ -11,7 +12,6 @@ from ...utility.download_manager import (
 from ...utility.huggingface_download import download_huggingface_file
 from ...handlers import ErrorSeverity
 from gettext import gettext as _
-import subprocess
 import os
 import platform
 import threading
@@ -63,6 +63,8 @@ class LlamaCPPHandler(OpenAIHandler):
         self.model_folder = os.path.join(self.path, "custom_models")
         self.server = BackgroundProcess("llama-server")
         self.server.register_atexit()
+        self._build_process = BuildProcess("llama.cpp-build")
+        self._build_process.register_atexit()
         self._killing_server = False
         self.port = None
         self.loaded_model = None
@@ -494,6 +496,7 @@ class LlamaCPPHandler(OpenAIHandler):
 
     def show_install_dialog(self, button):
         win = Adw.Window(title="Install llama.cpp")
+        self._build_window = win
         win.set_default_size(700, 760)
         win.set_modal(True)
         try:
@@ -850,6 +853,13 @@ class LlamaCPPHandler(OpenAIHandler):
         scroll.set_vexpand(True)
         scroll.set_hexpand(True)
         page4.append(scroll)
+
+        self.stop_build_button = Gtk.Button(label="Stop Build")
+        self.stop_build_button.add_css_class("destructive-action")
+        self.stop_build_button.set_halign(Gtk.Align.CENTER)
+        self.stop_build_button.set_sensitive(False)
+        self.stop_build_button.connect("clicked", self.stop_build)
+        page4.append(self.stop_build_button)
         content.append(page4)
 
         # Page 5: Done
@@ -1301,8 +1311,29 @@ class LlamaCPPHandler(OpenAIHandler):
 
         custom_flags = self.entry_cmake.get_text()
 
+        self._build_process.begin()
+        self.stop_build_button.set_sensitive(True)
         carousel.scroll_to(carousel.get_nth_page(4), True)
-        threading.Thread(target=self.run_install_process, args=(backend, carousel, custom_flags)).start()
+        threading.Thread(
+            target=self.run_install_process,
+            args=(backend, carousel, custom_flags),
+            daemon=True,
+        ).start()
+
+    def stop_build(self, button=None):
+        """Stop the active llama.cpp source build."""
+        self._build_process.cancel()
+        if button is None:
+            button = getattr(self, "stop_build_button", None)
+        if button is not None:
+            button.set_sensitive(False)
+
+    def _close_build_window(self):
+        window = getattr(self, "_build_window", None)
+        if window is not None:
+            self._build_window = None
+            window.close()
+        return False
 
     def run_install_process(self, backend, carousel, custom_flags=""):
         if not can_escape_sandbox():
@@ -1363,23 +1394,12 @@ class LlamaCPPHandler(OpenAIHandler):
                     if extra_env:
                         env.update(extra_env)
 
-                process = subprocess.Popen(
+                return self._build_process.run(
                     full_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
                     env=env if not is_flatpak() else None,
-                    cwd=cwd
+                    cwd=cwd,
+                    on_output=lambda line: GLib.idle_add(append_log, line),
                 )
-
-                while True:
-                    line = process.stdout.readline()
-                    if not line and process.poll() is not None:
-                        break
-                    if line:
-                        GLib.idle_add(append_log, line)
-                return process.poll() == 0
 
             GLib.idle_add(set_progress, 0.1)
             GLib.idle_add(append_log, "Cloning llama.cpp repository...\n")
@@ -1391,6 +1411,8 @@ class LlamaCPPHandler(OpenAIHandler):
 
             clone_cmd = ["git", "clone", "--depth", "1", "https://github.com/ggml-org/llama.cpp.git", abs_llama_cpp_path]
             if not run_cmd(clone_cmd):
+                if self._build_process.cancel_requested:
+                    raise BuildCancelled()
                 raise Exception("Failed to clone llama.cpp repository")
 
             GLib.idle_add(set_progress, 0.2)
@@ -1399,6 +1421,8 @@ class LlamaCPPHandler(OpenAIHandler):
             build_dir = os.path.join(abs_llama_cpp_path, "build")
             cmake_configure = ["cmake", "-B", "build", "-DCMAKE_BUILD_TYPE=Release"] + cmake_args
             if not run_cmd(cmake_configure, cwd=abs_llama_cpp_path):
+                if self._build_process.cancel_requested:
+                    raise BuildCancelled()
                 raise Exception("Failed to configure CMake build")
 
             GLib.idle_add(set_progress, 0.4)
@@ -1409,7 +1433,12 @@ class LlamaCPPHandler(OpenAIHandler):
             num_jobs = multiprocessing.cpu_count()
             cmake_build = ["cmake", "--build", "build", "--config", "Release", "-j", str(num_jobs)]
             if not run_cmd(cmake_build, cwd=abs_llama_cpp_path):
+                if self._build_process.cancel_requested:
+                    raise BuildCancelled()
                 raise Exception("Failed to build llama.cpp")
+
+            if self._build_process.cancel_requested:
+                raise BuildCancelled()
 
             server_binary = os.path.join(build_dir, "bin", "llama-server")
             if not os.path.exists(server_binary):
@@ -1423,10 +1452,18 @@ class LlamaCPPHandler(OpenAIHandler):
             self.set_setting("prebuilt_backend", backend)
             self.set_setting("gpu_acceleration", True)
 
+        except BuildCancelled:
+            GLib.idle_add(append_log, "\nBuild stopped by user.\n")
+            GLib.idle_add(self._close_build_window)
         except Exception as e:
             GLib.idle_add(append_log, f"\nError: {e}\n")
             import traceback
             GLib.idle_add(append_log, traceback.format_exc())
+        finally:
+            GLib.idle_add(
+                lambda: self.stop_build_button.set_sensitive(False)
+                if hasattr(self, "stop_build_button") else False
+            )
 
     def finish_install(self, win):
         win.close()
