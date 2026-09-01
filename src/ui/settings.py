@@ -368,6 +368,7 @@ class Settings(Adw.Window):
             row.set_visible(is_wakeword_mode)
 
         self.Voicegroup.add(self.wakeword_row)
+        self._build_voice_mode_settings()
         # Build prompts settings 
         self.prompt = Adw.PreferencesGroup(title=_('Prompt control'))
         add_prompt_btn = Gtk.Button(icon_name="list-add-symbolic")
@@ -3222,6 +3223,145 @@ class Settings(Adw.Window):
             
             parent_expander.add_row(folder_row)
             self.custom_folder_rows.append(folder_row)
+
+    def _build_voice_mode_settings(self):
+        group = Adw.PreferencesGroup(
+            title=_("Voice Mode"),
+            description=_("Configure the one-shot desktop voice pill"),
+        )
+        self.VoicePage.add(group)
+
+        position_row = Adw.ComboRow(
+            title=_("Pill position"),
+            subtitle=_("Choose where Voice Mode appears on the desktop"),
+        )
+        positions = (
+            (_("Top left"), "top-left"),
+            (_("Top center"), "top-center"),
+            (_("Top right"), "top-right"),
+            (_("Center left"), "center-left"),
+            (_("Center"), "center-center"),
+            (_("Center right"), "center-right"),
+            (_("Bottom left"), "bottom-left"),
+            (_("Bottom center"), "bottom-center"),
+            (_("Bottom right"), "bottom-right"),
+        )
+        helper = ComboRowHelper(
+            position_row, positions, self.settings.get_string("voice-mode-position")
+        )
+        helper.connect(
+            "changed", lambda _helper, value: self.settings.set_string("voice-mode-position", value)
+        )
+        group.add(position_row)
+
+        margin_row = Adw.SpinRow(
+            title=_("Screen margin"),
+            subtitle=_("Distance from the selected screen edges"),
+            adjustment=Gtk.Adjustment(
+                lower=0,
+                upper=160,
+                value=self.settings.get_int("voice-mode-margin"),
+                step_increment=1,
+                page_increment=8,
+            ),
+            digits=0,
+        )
+        def update_voice_margin(spin, _input):
+            self.settings.set_int("voice-mode-margin", int(spin.get_value()))
+            return False
+
+        margin_row.connect("input", update_voice_margin)
+        group.add(margin_row)
+
+        mode_row = Adw.ComboRow(
+            title=_("Newelle Mode"),
+            subtitle=_("Use this Mode only for voice requests"),
+        )
+        mode_options = [(_("Follow current Mode"), "current")]
+        mode_options.extend(
+            (name, name) for name in self.controller.mode_manager.get_modes().keys()
+        )
+        helper = ComboRowHelper(
+            mode_row,
+            tuple(mode_options),
+            self.settings.get_string("voice-mode-mode"),
+        )
+        helper.connect(
+            "changed", lambda _helper, value: self.settings.set_string("voice-mode-mode", value)
+        )
+        group.add(mode_row)
+
+        theme_row = Adw.ComboRow(
+            title=_("Pill theme"),
+            subtitle=_("Follow Newelle or use a dedicated appearance"),
+        )
+        themes = (
+            (_("Follow Newelle"), "newelle"),
+            (_("Light"), "light"),
+            (_("Dark"), "dark"),
+            (_("Custom"), "custom"),
+        )
+        custom_colors = Adw.ExpanderRow(
+            title=_("Custom colors"),
+            subtitle=_("Background, text, waveform, and transparency"),
+        )
+        helper = ComboRowHelper(
+            theme_row, themes, self.settings.get_string("voice-pill-theme")
+        )
+
+        def on_theme_changed(_helper, value):
+            self.settings.set_string("voice-pill-theme", value)
+            custom_colors.set_visible(value == "custom")
+
+        helper.connect("changed", on_theme_changed)
+        group.add(theme_row)
+
+        def add_color_row(title, setting_key):
+            row = Adw.ActionRow(title=title)
+            rgba = Gdk.RGBA()
+            if not rgba.parse(self.settings.get_string(setting_key)):
+                rgba.parse("#ffffff")
+            dialog = Gtk.ColorDialog(title=title, with_alpha=False)
+            button = Gtk.ColorDialogButton(dialog=dialog, rgba=rgba)
+            button.connect(
+                "notify::rgba",
+                lambda color_button, _param: self.settings.set_string(
+                    setting_key, color_button.get_rgba().to_string()
+                ),
+            )
+            row.add_suffix(button)
+            custom_colors.add_row(row)
+
+        add_color_row(_("Background"), "voice-pill-background")
+        add_color_row(_("Text"), "voice-pill-foreground")
+        add_color_row(_("Waveform accent"), "voice-pill-accent")
+
+        opacity_row = Adw.SpinRow(
+            title=_("Opacity"),
+            adjustment=Gtk.Adjustment(
+                lower=0.55,
+                upper=1.0,
+                value=self.settings.get_double("voice-pill-opacity"),
+                step_increment=0.01,
+                page_increment=0.05,
+            ),
+            digits=2,
+        )
+        def update_voice_opacity(spin, _input):
+            self.settings.set_double("voice-pill-opacity", spin.get_value())
+            return False
+
+        opacity_row.connect("input", update_voice_opacity)
+        custom_colors.add_row(opacity_row)
+        custom_colors.set_visible(self.settings.get_string("voice-pill-theme") == "custom")
+        group.add(custom_colors)
+
+        shortcut_info = Adw.ActionRow(
+            title=_("Global shortcut"),
+            subtitle=_("Bind Ctrl+I to “newelle --voice” in your desktop keyboard settings"),
+        )
+        shortcut_info.add_prefix(Gtk.Image(icon_name="preferences-desktop-keyboard-shortcuts-symbolic"))
+        group.add(shortcut_info)
 
     def build_auto_stt(self):
         auto_stt_enabled = Gtk.Switch(valign=Gtk.Align.CENTER)

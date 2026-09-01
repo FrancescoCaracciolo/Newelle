@@ -244,6 +244,8 @@ class CallPanel(Gtk.Box):
         self.user_speaking = False
         self.history_visible = False
         self.listen_during_tts = True
+        self._tts_handler = None
+        self._tts_tokens = []
 
         # Conversation turn state
         self._call_generation = 0
@@ -611,6 +613,7 @@ class CallPanel(Gtk.Box):
         # Stop TTS playback
         if hasattr(self.controller, 'handlers') and self.controller.handlers.tts:
             self.controller.handlers.tts.stop()
+        self._disconnect_tts_listeners()
 
     def _on_history_clicked(self, button):
         """Handle history toggle button click"""
@@ -1265,6 +1268,8 @@ class CallPanel(Gtk.Box):
         tts = self.controller.handlers.tts
         if not tts:
             return
+        self._disconnect_tts_listeners()
+        self._tts_handler = tts
 
         def on_tts_start():
             GLib.idle_add(
@@ -1280,8 +1285,10 @@ class CallPanel(Gtk.Box):
                 False,
             )
 
-        tts.connect("start", on_tts_start)
-        tts.connect("stop", on_tts_stop)
+        self._tts_tokens = [
+            tts.connect("start", on_tts_start),
+            tts.connect("stop", on_tts_stop),
+        ]
 
         try:
             tts.play(text)
@@ -1294,6 +1301,13 @@ class CallPanel(Gtk.Box):
                 call_generation,
                 False,
             )
+
+    def _disconnect_tts_listeners(self):
+        if self._tts_handler is not None:
+            for token in self._tts_tokens:
+                self._tts_handler.disconnect(token)
+        self._tts_tokens = []
+        self._tts_handler = None
     
     def _set_assistant_speaking(self, call_generation, speaking):
         """Update assistant speaking state"""

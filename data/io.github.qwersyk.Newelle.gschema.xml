@@ -77,6 +77,30 @@
 	      <key name="tts-voice" type="s">
             <default>"{}"</default>
         </key>
+        <key name="voice-mode-position" type="s">
+            <default>"bottom-center"</default>
+        </key>
+        <key name="voice-mode-margin" type="i">
+            <default>24</default>
+        </key>
+        <key name="voice-mode-mode" type="s">
+            <default>"current"</default>
+        </key>
+        <key name="voice-pill-theme" type="s">
+            <default>"newelle"</default>
+        </key>
+        <key name="voice-pill-background" type="s">
+            <default>"#202124"</default>
+        </key>
+        <key name="voice-pill-foreground" type="s">
+            <default>"#f7f7f8"</default>
+        </key>
+        <key name="voice-pill-accent" type="s">
+            <default>"#78aeed"</default>
+        </key>
+        <key name="voice-pill-opacity" type="d">
+            <default>0.96</default>
+        </key>
 	      <key name="stt-engine" type="s">
             <default>"google_sr"</default>
         </key>

@@ -71,6 +71,7 @@ ui_sources = [
   'ui/screenrecorder.py',
   'ui/shortcuts.py',
   'ui/mini_window.py',
+  'ui/voice_mode.py',
   'ui/explorer.py',
   'ui/stdout_monitor.py',
   'ui/model_library.py',

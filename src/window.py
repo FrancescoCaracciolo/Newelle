@@ -56,7 +56,7 @@ class MainWindow(Adw.ApplicationWindow):
     }
 
     def __init__(self, *args, **kwargs):
-
+        self.suppress_presentation = kwargs.pop("suppress_presentation", False)
         super().__init__(*args, **kwargs)
         self.app = self.get_application()
         # Main program block - On the right Canvas tabs, Chat as content
@@ -106,6 +106,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._recording_stopping = False
         self._recording_start_pending_button = None
         self._recording_start_source_id = None
+        self._tts_listener_tokens = []
         # Stdout monitoring - Initialize and start from program start
         self.stdout_monitor_dialog = None
         self._init_stdout_monitoring()
@@ -373,7 +374,10 @@ class MainWindow(Adw.ApplicationWindow):
 
         GLib.idle_add(start_transition)
         GLib.timeout_add(600, after_transition)
-        if not self.settings.get_boolean("welcome-screen-shown"):
+        if (
+            not self.suppress_presentation
+            and not self.settings.get_boolean("welcome-screen-shown")
+        ):
             threading.Thread(target=self.show_presentation_window).start()
         GLib.timeout_add(10, build_model_popup)
         self.ui_built = True
@@ -381,6 +385,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _cleanup_on_destroy(self, window):
         """Clean up resources when window is destroyed"""
+        self._disconnect_tts_lifecycle()
         # Stop wakeword detection
         self.stop_wakeword_detection()
         # Stop stdout monitoring
@@ -916,12 +921,7 @@ class MainWindow(Adw.ApplicationWindow):
         if ReloadType.RELOAD_CHAT_LIST in reloads:
             self.update_history()
         # Setup TTS
-        self.tts.connect(
-            "start", lambda: GLib.idle_add(self.mute_tts_button.set_visible, True)
-        )
-        self.tts.connect(
-            "stop", lambda: GLib.idle_add(self.mute_tts_button.set_visible, False)
-        )
+        self._connect_tts_lifecycle()
         # Handle wakeword detection
         # Check if we need to restart wakeword detector
         should_be_listening = self.controller.newelle_settings.wakeword_enabled
@@ -1303,6 +1303,33 @@ class MainWindow(Adw.ApplicationWindow):
         if self.tts_enabled:
             self.tts.stop()
         return False
+
+    def _disconnect_tts_lifecycle(self):
+        for handler, token in getattr(self, "_tts_listener_tokens", []):
+            handler.disconnect(token)
+        self._tts_listener_tokens = []
+
+    def _connect_tts_lifecycle(self):
+        """Keep one pair of main-window listeners across handler reloads."""
+        self._disconnect_tts_lifecycle()
+        if self.tts is None:
+            return
+        self._tts_listener_tokens = [
+            (
+                self.tts,
+                self.tts.connect(
+                    "start",
+                    lambda: GLib.idle_add(self.mute_tts_button.set_visible, True),
+                ),
+            ),
+            (
+                self.tts,
+                self.tts.connect(
+                    "stop",
+                    lambda: GLib.idle_add(self.mute_tts_button.set_visible, False),
+                ),
+            ),
+        ]
 
     def start_wakeword_detection(self):
         """Start continuous wakeword detection"""
@@ -1777,12 +1804,7 @@ class MainWindow(Adw.ApplicationWindow):
         if ReloadType.TOOLS in reload_types:
             self.model_popup_settings.refresh_tools_list()
 
-        self.tts.connect(
-            "start", lambda: GLib.idle_add(self.mute_tts_button.set_visible, True)
-        )
-        self.tts.connect(
-            "stop", lambda: GLib.idle_add(self.mute_tts_button.set_visible, False)
-        )
+        self._connect_tts_lifecycle()
 
         if ReloadType.LLM in reload_types:
             send_on_enter = not newsettings.send_on_enter
