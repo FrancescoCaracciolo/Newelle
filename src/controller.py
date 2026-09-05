@@ -1915,6 +1915,8 @@ class NewelleController:
         skill_manager: SkillManager | None = None,
         extension_processing: bool = True,
         mode_name: str | None = None,
+        on_tool_start_callback: Callable[[str], None] = None,
+        on_intermediate_message_callback: Callable[[str], None] = None,
     ) -> str:
         """Run LLM with tool support integration.
 
@@ -1936,6 +1938,9 @@ class NewelleController:
                 generate_response. Set to False to bypass extension processing.
             mode_name: Optional request-local Newelle Mode. It controls prompts,
                 tool exposure, and Skills without changing ``current-mode``.
+            on_tool_start_callback: Called immediately before each tool executes.
+            on_intermediate_message_callback: Called with assistant text emitted
+                before one or more tool calls are executed.
 
         Returns:
             Final message from the LLM
@@ -2134,6 +2139,17 @@ class NewelleController:
                     elif chunk.type in ("text", "markdown"):
                         text_content += "\n" + chunk.text
 
+                if (
+                    tool_calls
+                    and not final_synthesis_turn
+                    and text_content.strip()
+                    and on_intermediate_message_callback is not None
+                ):
+                    try:
+                        on_intermediate_message_callback(text_content.strip())
+                    except Exception as exc:
+                        print(f"Intermediate message callback error: {exc}")
+
                 # Some streaming handlers throttle their callbacks and can
                 # leave the final character or provider chunk unreported.
                 # Flush the complete cumulative response once generation is
@@ -2206,6 +2222,12 @@ class NewelleController:
                     )
                     tool_context_messages = []
                     tool_display_text = None
+
+                    if on_tool_start_callback is not None:
+                        try:
+                            on_tool_start_callback(tool_name)
+                        except Exception as exc:
+                            print(f"Tool start callback error: {exc}")
 
                     # Lazy loading: a tool_search call means the model just fetched
                     # a tool's schema. Expand it in the system prompt so that, on the
