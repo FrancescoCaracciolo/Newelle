@@ -268,6 +268,7 @@ class VoiceModeWindow(Gtk.Window):
         self._interaction_hide_source = None
         self._content_reveal_source = None
         self._close_animation_source = None
+        self._capture_restart_source = None
         self._open_animation_started = False
         self._close_animation_started = False
 
@@ -334,7 +335,7 @@ class VoiceModeWindow(Gtk.Window):
         self.interaction_revealer.set_child(self.interaction_card)
         self.root_box.append(self.interaction_revealer)
 
-        self.pill = Gtk.CenterBox(
+        self.pill = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
             halign=Gtk.Align.CENTER,
             valign=Gtk.Align.CENTER,
@@ -346,28 +347,58 @@ class VoiceModeWindow(Gtk.Window):
             css_classes=["voice-pill-status-icon"],
         )
         self.status_icon.set_pixel_size(16)
+        self.status_spinner = Gtk.Spinner(
+            css_classes=["voice-pill-status-icon"],
+        )
+        self.status_spinner.set_size_request(16, 16)
+        self.status_indicator = Gtk.Stack(
+            hhomogeneous=True,
+            vhomogeneous=True,
+            halign=Gtk.Align.CENTER,
+            valign=Gtk.Align.CENTER,
+        )
+        self.status_indicator.set_size_request(16, 16)
+        self.status_indicator.add_named(self.status_icon, "icon")
+        self.status_indicator.add_named(self.status_spinner, "spinner")
+        self.status_indicator.set_visible_child_name("icon")
         self.status_label = Gtk.Label(
             css_classes=["voice-pill-status"],
             ellipsize=Pango.EllipsizeMode.END,
+            width_chars=22,
             max_width_chars=22,
             single_line_mode=True,
-            xalign=0,
+            xalign=0.5,
         )
-        self.pill_content = Gtk.Box(
+        status_slot = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=10,
+            halign=Gtk.Align.START,
             valign=Gtk.Align.CENTER,
         )
-        self.pill_content.append(self.waveform)
-        self.pill_content.append(self.status_icon)
-        self.pill_content.append(self.status_label)
+        status_slot.set_size_request(28, -1)
+        status_slot.append(self.status_indicator)
+        waveform_slot = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            halign=Gtk.Align.END,
+            valign=Gtk.Align.CENTER,
+        )
+        waveform_slot.set_size_request(28, -1)
+        waveform_slot.append(self.waveform)
+        self.pill_content = Gtk.CenterBox(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            hexpand=True,
+            valign=Gtk.Align.CENTER,
+        )
+        self.pill_content.set_start_widget(status_slot)
+        self.pill_content.set_center_widget(self.status_label)
+        self.pill_content.set_end_widget(waveform_slot)
         self.pill_content_revealer = Gtk.Revealer(
             transition_type=Gtk.RevealerTransitionType.CROSSFADE,
             transition_duration=self._content_transition_ms,
             reveal_child=not self._animations_enabled,
+            hexpand=True,
         )
         self.pill_content_revealer.set_child(self.pill_content)
-        self.pill.set_center_widget(self.pill_content_revealer)
+        self.pill.append(self.pill_content_revealer)
         self._set_status(_("Ready"))
         self.root_box.append(self.pill)
 
@@ -872,11 +903,7 @@ class VoiceModeWindow(Gtk.Window):
             return GLib.SOURCE_REMOVE
         if not self._cancel_event.is_set():
             if final:
-                self.session.complete()
-                self._set_status(
-                    _("Ready"), "audio-input-microphone-symbolic"
-                )
-                self.waveform.set_idle()
+                self._finish_voice_interaction()
             elif self.state is VoiceSessionState.SPEAKING:
                 self._set_state(VoiceSessionState.RUNNING)
         return GLib.SOURCE_REMOVE
@@ -884,9 +911,38 @@ class VoiceModeWindow(Gtk.Window):
     def _complete_without_tts(self):
         if self._cancel_event.is_set():
             return GLib.SOURCE_REMOVE
-        self.session.complete()
-        self._set_status(_("Done"), "emblem-ok-symbolic")
+        self._finish_voice_interaction()
+        return GLib.SOURCE_REMOVE
+
+    def _finish_voice_interaction(self):
+        """Finish the current request and arm capture for the next one."""
+        if self._destroying or not self.session.complete():
+            return
+        # The TTS handler is shared with the rest of the application. Once its
+        # response is finished, detach this interaction's listeners before
+        # listening again so unrelated playback cannot re-trigger completion.
+        self._tts_playback_generation += 1
+        self._disconnect_tts()
+        self._set_status(_("Ready"), "audio-input-microphone-symbolic")
         self.waveform.set_idle()
+        if self._capture_restart_source is None:
+            self._capture_restart_source = GLib.timeout_add(
+                25, self._restart_capture_when_ready
+            )
+
+    def _restart_capture_when_ready(self):
+        """Restart only after the previous capture/request fully released."""
+        if self._destroying or self._cancel_event.is_set():
+            self._capture_restart_source = None
+            return GLib.SOURCE_REMOVE
+        if (
+            self._recording_thread is not None
+            or self._processing_thread is not None
+            or self._pending_results
+        ):
+            return GLib.SOURCE_CONTINUE
+        self._capture_restart_source = None
+        self._start_capture()
         return GLib.SOURCE_REMOVE
 
     def _on_tool_result(self, tool_name, result):
@@ -1012,7 +1068,11 @@ class VoiceModeWindow(Gtk.Window):
             return GLib.SOURCE_REMOVE
         if not self.session.transition(state):
             return GLib.SOURCE_REMOVE
-        self._set_status(self._state_label(state), self._state_icon(state))
+        self._set_status(
+            self._state_label(state),
+            self._state_icon(state),
+            spinning=state is VoiceSessionState.RUNNING,
+        )
         self.root_box.remove_css_class("voice-mode-error")
         self.root_box.remove_css_class("voice-mode-waiting")
         if state is VoiceSessionState.SPEAKING:
@@ -1051,9 +1111,14 @@ class VoiceModeWindow(Gtk.Window):
             VoiceSessionState.CLOSING: "window-close-symbolic",
         }[state]
 
-    def _set_status(self, text, icon_name=None):
-        if icon_name:
+    def _set_status(self, text, icon_name=None, spinning=False):
+        if spinning:
+            self.status_indicator.set_visible_child_name("spinner")
+            self.status_spinner.start()
+        elif icon_name:
+            self.status_spinner.stop()
             self.status_icon.set_from_icon_name(icon_name)
+            self.status_indicator.set_visible_child_name("icon")
         self.status_label.set_label(text)
         self.pill.set_tooltip_text(text)
         self.pill.update_property([Gtk.AccessibleProperty.LABEL], [text])
@@ -1137,6 +1202,9 @@ class VoiceModeWindow(Gtk.Window):
         if self._close_animation_source is not None:
             GLib.source_remove(self._close_animation_source)
             self._close_animation_source = None
+        if self._capture_restart_source is not None:
+            GLib.source_remove(self._capture_restart_source)
+            self._capture_restart_source = None
         if self._settings_changed_handler is not None:
             self.settings.disconnect(self._settings_changed_handler)
             self._settings_changed_handler = None
