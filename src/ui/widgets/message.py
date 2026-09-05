@@ -9,7 +9,7 @@ import tempfile
 import socket
 from gi.repository import Gtk, GLib, Pango, GdkPixbuf, Gio, Gdk
 
-from ...utility.message_chunk import get_message_chunks, MessageChunk
+from ...utility.message_chunk import get_message_chunks, MessageChunk, normalize_tool_arguments
 from ...utility.source_attribution import CitationSource, extract_source_section
 from ...utility.strings import markwon_to_pango, remove_thinking_blocks, simple_markdown_to_pango, quote_string
 from pylatexenc.latex2text import LatexNodes2Text
@@ -1327,7 +1327,7 @@ class Message(Gtk.Box):
                         return
                     chat_tab.tool_call_count += 1
                 chunk = slot.chunk if slot is not None else None
-                args = chunk.tool_args if chunk is not None else {}
+                args = normalize_tool_arguments(chunk.tool_args if chunk is not None else {})
                 active_group = current_group()
                 if active_group is not None:
                     active_group.set_slot_state(slot, "running")

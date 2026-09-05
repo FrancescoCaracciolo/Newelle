@@ -946,7 +946,13 @@ class OpenAIHandler(LLMHandler):
                 if hasattr(response.choices[0].message, "tool_calls") and response.choices[0].message.tool_calls is not None:
                     for tool_call in response.choices[0].message.tool_calls:
                         tool = tool_call.function
-                        tool_call_dict = {"tool": tool.name, "arguments": json.loads(tool.arguments) if tool.arguments else {}}
+                        try:
+                            args = json.loads(tool.arguments) if tool.arguments else {}
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            args = {}
+                        if not isinstance(args, dict):
+                            args = {}
+                        tool_call_dict = {"tool": tool.name, "arguments": args}
                         tc_id = getattr(tool_call, "id", None)
                         if tc_id:
                             tool_call_dict["id"] = tc_id
@@ -1092,9 +1098,11 @@ class OpenAIHandler(LLMHandler):
                 for index in sorted(tool_calls.keys()):
                     tc = tool_calls[index]
                     try:
-                        args = json.loads(tc["arguments"])
-                    except:
-                        args = tc["arguments"]
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        args = {}
+                    if not isinstance(args, dict):
+                        args = {}
                     tool_call_dict = {"tool": tc["name"], "arguments": args}
                     tid = (tc.get("id") or "").strip()
                     if tid:

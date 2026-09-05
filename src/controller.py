@@ -10,7 +10,7 @@ from .tools import Tool, ToolRegistry, ToolResult
 from .skills import SkillManager
 from .modes import ModeManager
 from .utility.media import chat_contains_vision, get_image_base64, get_image_path, extract_supported_files
-from .utility.message_chunk import get_message_chunks
+from .utility.message_chunk import get_message_chunks, normalize_tool_arguments
 
 from .extensions import NewelleExtension
 from .handlers.llm import LLMHandler
@@ -2212,7 +2212,7 @@ class NewelleController:
                 for tool_call in tool_calls:
                     tool_call_count += 1
                     tool_name = tool_call["name"]
-                    tool_args = tool_call["args"]
+                    tool_args = normalize_tool_arguments(tool_call["args"])
                     tool_result_output = None
                     provider_tool_id = tool_call.get("id")
                     tool_uuid = (
@@ -2379,6 +2379,7 @@ class NewelleController:
         if tool is None:
             raise ValueError(f"Tool '{tool_name}' not found")
 
+        arguments = normalize_tool_arguments(arguments)
         if threading.current_thread() is threading.main_thread():
             return tool.execute(**arguments)
 
