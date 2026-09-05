@@ -270,6 +270,7 @@ utility_sources = [
   'utility/huggingface_download.py',
   'utility/tool_call_group.py',
   'utility/build_dependencies.py',
+  'utility/mcp_config.py',
 ]
 
 install_data(newelle_sources, install_dir: moduledir)
