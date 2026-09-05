@@ -360,6 +360,25 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         )
 
         settings.append(
+            ExtraSettings.ComboSetting(
+                "model_load_mode",
+                _("Model Loading Mode"),
+                _(
+                    "Choose which sd-cli argument loads the selected model. "
+                    "Automatic uses --diffusion-model for GGUF files and -m "
+                    "for other formats. Standalone diffusion models such as "
+                    "Anima safetensors require --diffusion-model."
+                ),
+                (
+                    (_("Automatic"), "auto"),
+                    (_("Full model (-m)"), "model"),
+                    (_("Standalone diffusion model (--diffusion-model)"), "diffusion_model"),
+                ),
+                "auto",
+            )
+        )
+
+        settings.append(
             ExtraSettings.ButtonSetting(
                 "library",
                 "Model Library",
@@ -710,6 +729,33 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                         "auto",
                     ),
                     ExtraSettings.ComboSetting(
+                        "weight_type",
+                        _("Weight Type"),
+                        _(
+                            "Override the model weight type (--type). Model "
+                            "default uses the type stored in the weight file."
+                        ),
+                        (
+                            (_("Model default"), "default"),
+                            ("f32", "f32"),
+                            ("f16", "f16"),
+                            ("bf16", "bf16"),
+                            ("q4_0", "q4_0"),
+                            ("q4_1", "q4_1"),
+                            ("q5_0", "q5_0"),
+                            ("q5_1", "q5_1"),
+                            ("q8_0", "q8_0"),
+                            ("q8_1", "q8_1"),
+                            ("q2_K", "q2_K"),
+                            ("q3_K", "q3_K"),
+                            ("q4_K", "q4_K"),
+                            ("q5_K", "q5_K"),
+                            ("q6_K", "q6_K"),
+                            ("q8_K", "q8_K"),
+                        ),
+                        "default",
+                    ),
+                    ExtraSettings.ComboSetting(
                         "cache_mode",
                         "Cache Mode",
                         "Caching method for faster inference (--cache-mode).",
@@ -1010,10 +1056,17 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
           not already start with it. Use this for separate diffusion-only
           files (typically GGUFs) whose tensors have no prefix.
 
-        Heuristic: pass ``--diffusion-model`` for ``.gguf`` files (so the
-        prefix is added) and ``-m`` for everything else (safetensors, torch
-        checkpoints, …).
+        The ``model_load_mode`` setting can force either argument. In automatic
+        mode, pass ``--diffusion-model`` for ``.gguf`` files (so the prefix is
+        added) and ``-m`` for everything else (safetensors, torch checkpoints,
+        …). The explicit override is needed for standalone diffusion models
+        distributed as safetensors, such as Anima.
         """
+        load_mode = self.get_setting("model_load_mode", False, "auto")
+        if load_mode == "diffusion_model":
+            return ["--diffusion-model", model_path]
+        if load_mode == "model":
+            return ["-m", model_path]
         if not model_path:
             return ["-m", ""]
         if model_path.lower().endswith(".gguf"):
@@ -1126,6 +1179,10 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         prediction = self.get_setting("prediction", True, "auto")
         if prediction and prediction != "auto":
             args.extend(["--prediction", str(prediction)])
+
+        weight_type = self.get_setting("weight_type", False, "default")
+        if weight_type and weight_type != "default":
+            args.extend(["--type", str(weight_type)])
 
         cache_mode = self.get_setting("cache_mode", True, "none")
         if cache_mode and cache_mode != "none":
