@@ -86,6 +86,9 @@
         <key name="voice-mode-mode" type="s">
             <default>"current"</default>
         </key>
+        <key name="voice-mode-x11-override-dont-show" type="b">
+            <default>false</default>
+        </key>
         <key name="voice-pill-theme" type="s">
             <default>"newelle"</default>
         </key>

@@ -505,9 +505,10 @@ class MyApp(Adw.Application):
     def show_voice_mode(self, *_args):
         """Open or cancel the one-shot desktop Voice Mode surface."""
         existing = getattr(self, "voice_win", None)
-        if existing is not None and existing.get_visible():
-            existing.cancel()
-            return
+        if existing is not None:
+            if existing.is_closing() or existing.get_visible():
+                existing.cancel()
+                return
         self.voice_win = VoiceModeWindow(
             application=self,
             main_window=self.win,

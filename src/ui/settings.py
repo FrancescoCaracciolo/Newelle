@@ -24,7 +24,15 @@ from .interfaces import InterfacesPage
 from .extra_settings import ExtraSettingsBuilder
 from .widgets import ComboRowHelper, CopyBox 
 from .widgets import MultilineEntry
-from ..utility.system import can_escape_sandbox, get_spawn_command, open_website, open_folder, is_flatpak 
+from ..utility.system import (
+    can_escape_sandbox,
+    get_flatpak_x11_override_command,
+    get_spawn_command,
+    open_website,
+    open_folder,
+    is_flatpak,
+    needs_voice_mode_x11_override,
+) 
 
 from ..controller import NewelleController
 from ..modes import DEFAULT_MODE_NAME
@@ -3432,6 +3440,38 @@ class Settings(Adw.Window):
             description=_("Configure the one-shot desktop voice pill"),
         )
         self.VoicePage.add(group)
+
+        if needs_voice_mode_x11_override():
+            command = get_flatpak_x11_override_command()
+            warning = Adw.ActionRow(
+                title=_("X11 access is missing"),
+                subtitle=_(
+                    "Voice Mode cannot position itself correctly on Wayland without X11 access. Run this command, then restart Newelle."
+                ),
+            )
+            warning.add_css_class("warning")
+            warning.set_icon_name("dialog-warning-symbolic")
+            copy_button = Gtk.Button(
+                icon_name="edit-copy-symbolic",
+                valign=Gtk.Align.CENTER,
+                tooltip_text=_("Copy command"),
+                css_classes=["flat"],
+            )
+            warning.add_suffix(copy_button)
+            group.add(warning)
+            command_row = Adw.ActionRow(
+                title=_("Override command"),
+                subtitle=command,
+            )
+            group.add(command_row)
+
+            def copy_override_command(_button):
+                display = self.get_display() or Gdk.Display.get_default()
+                if display is None:
+                    return
+                display.get_clipboard().set(command)
+
+            copy_button.connect("clicked", copy_override_command)
 
         position_row = Adw.ComboRow(
             title=_("Pill position"),

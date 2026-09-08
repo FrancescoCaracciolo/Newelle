@@ -847,6 +847,14 @@ SETTINGS_GROUPS = {
                          "wakeword-pre-buffer-duration", "wakeword-silence-duration", "wakeword-energy-threshold",
                          "secondary-stt-on", "secondary-stt-engine", "stt-secondary-settings"],
             "description": _("Wakeword detection settings"),
+        },
+        "voice_mode": {
+            "title": _("Voice Mode"),
+            "settings": ["voice-mode-position", "voice-mode-margin", "voice-mode-mode",
+                         "voice-pill-theme", "voice-pill-background", "voice-pill-foreground",
+                         "voice-pill-accent", "voice-pill-opacity",
+                         "voice-mode-x11-override-dont-show"],
+            "description": _("Voice Mode pill appearance and positioning"),
         }
 
 }
