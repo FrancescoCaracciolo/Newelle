@@ -2,7 +2,7 @@ from abc import abstractmethod
 from typing import Callable, Any
 import json
 from ..handler import Handler
-from ...utility.media import extract_image 
+from ...utility.media import extract_image, prepare_file_message
 from ...utility.strings import extract_json
 
 class LLMHandler(Handler):
@@ -149,7 +149,8 @@ class LLMHandler(Handler):
         Returns:
             str: Response of the bot
         """        
-        return self.generate_text(message, history, system_prompt)
+        history = [{**item, "Message": prepare_file_message(item["Message"])} if item.get("User") == "User" else item for item in history]
+        return self.generate_text(prepare_file_message(message), history, system_prompt)
 
     def send_message_stream(self, message:str, history: list[dict[str, str]] = [], system_prompt: list[str] = [], on_update: Callable[[str], Any] = (), extra_args : list = []) -> str:
         """Send a message to the bot
@@ -163,7 +164,8 @@ class LLMHandler(Handler):
         Returns:
             str: Response of the bot
         """        
-        return self.generate_text_stream(message, history, system_prompt, on_update, extra_args)
+        history = [{**item, "Message": prepare_file_message(item["Message"])} if item.get("User") == "User" else item for item in history]
+        return self.generate_text_stream(prepare_file_message(message), history, system_prompt, on_update, extra_args)
  
     def get_suggestions(self, request_prompt:str = "", amount:int=1, history: list[dict[str, str]] = []) -> list[str]:
         """Get suggestions for the current chat. The default implementation expects the result as a JSON Array containing the suggestions

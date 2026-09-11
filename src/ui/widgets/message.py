@@ -1,4 +1,5 @@
 import threading
+from gettext import gettext as _
 import uuid
 import inspect
 import base64
@@ -506,7 +507,7 @@ class Message(Gtk.Box):
                 codeblocks = {**self.controller.extensionloader.codeblocks, **self.controller.integrationsloader.codeblocks}
                 if not self.streaming and new_chunk.lang in codeblocks:
                     return False
-                if new_chunk.lang in ["video", "image", "chart", "file", "folder"]: return False
+                if new_chunk.lang in ["video", "image", "chart", "file", "file_direct", "file_rag", "folder"]: return False
                 return True
             return True
         if w_type == "thinking": return True
@@ -923,8 +924,13 @@ class Message(Gtk.Box):
             self._process_video_codeblock(text, box)
         elif lang == "console" and not is_user:
             self._process_console_codeblock(chunk, box, state, restore)
-        elif lang in ("file", "folder"):
+        elif lang in ("file", "file_direct", "file_rag", "folder"):
             chat_history = self._get_chat_history()
+            if lang in ("file_direct", "file_rag"):
+                box.append(Gtk.Label(
+                    label=_("Sent directly to model") if lang == "file_direct" else _("Use RAG"),
+                    xalign=0, css_classes=["dim-label"],
+                ))
             for obj in text.split("\n"):
                 if obj.strip():
                      if chat_history is not None:

@@ -68,6 +68,24 @@ class OpenAIHandler(LLMHandler):
     def supports_vision(self) -> bool:
         return True
 
+    def supports_video_vision(self) -> bool:
+        return self.supports_vision()
+
+    def get_supported_files(self) -> list[str]:
+        if not self.supports_vision():
+            return []
+        return ["*.pdf", "*.txt", "*.md", "*.json", "*.html", "*.xml",
+                "*.doc", "*.docx", "*.rtf", "*.odt", "*.ppt", "*.pptx",
+                "*.csv", "*.tsv", "*.xls", "*.xlsx"]
+
+    def get_video_mode(self) -> str:
+        # OpenAI's endpoints accept images, while compatible providers may
+        # implement the video_url extension to Chat Completions.
+        endpoint = self.get_setting("endpoint", False, "https://api.openai.com/v1") or ""
+        from urllib.parse import urlparse
+        default = "frames" if urlparse(endpoint).hostname == "api.openai.com" or self.uses_responses_api() else "native"
+        return self.get_setting("video_mode", False, default)
+
     def get_extra_settings(self) -> list:
         settings = self.build_extra_settings("OpenAI", True, True, True, True, True, "https://openai.com/policies/row-privacy-policy/", None, False, False, True, self.supports_thinking(), True, supports_custom_headers=True)
         settings.append(
@@ -78,6 +96,12 @@ class OpenAIHandler(LLMHandler):
                 False,
             )
         )
+        settings.append(ExtraSettings.ComboSetting(
+            "video_mode", _("Video Input"),
+            _("Send videos natively to compatible providers, or sample up to 16 frames using ffmpeg (without audio). OpenAI requires frames."),
+            ((_("Video URL"), "native"), (_("Sample Frames"), "frames")),
+            self.get_video_mode(),
+        ))
         return settings
 
     def get_duplication_settings(self) -> list[dict] | None:
@@ -209,7 +233,12 @@ class OpenAIHandler(LLMHandler):
     def convert_history(self, history: list, prompts: list | None = None) -> list:
         if prompts is None:
             prompts = self.prompts
-        return convert_history_openai(history, prompts, self.supports_vision(), self.get_setting("native_tool_calling", False, True))
+        return convert_history_openai(
+            history, prompts, self.supports_vision(),
+            self.get_setting("native_tool_calling", False, True),
+            supported_files=self.get_supported_files(),
+            video_support=self.supports_video_vision(), video_mode=self.get_video_mode(),
+        )
 
     def uses_responses_api(self) -> bool:
         return self.get_setting("responses_api", False, False)
@@ -255,6 +284,10 @@ class OpenAIHandler(LLMHandler):
                             "image_url": image_url.get("url") if isinstance(image_url, dict) else image_url,
                             "detail": "auto",
                         })
+                    elif item.get("type") == "file":
+                        converted_content.append({"type": "input_file", **item["file"]})
+                    elif item.get("type") == "video_url":
+                        raise ValueError(_("The Responses API requires sampled video frames; select Sample Frames for Video Input"))
                     else:
                         converted_content.append(item)
                 content = converted_content

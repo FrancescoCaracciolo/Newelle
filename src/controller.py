@@ -1,4 +1,5 @@
 from typing import Any, Callable
+from gettext import gettext as _
 from gi.repository import GLib, Gio, Adw
 import os
 import base64
@@ -36,7 +37,7 @@ import datetime
 import uuid as uuid_lib
 from .extensions import ExtensionLoader
 from .utility import override_prompts
-from .utility.strings import clean_bot_response, clean_prompt, count_tokens, extract_reasoning_content, get_edited_messages
+from .utility.strings import clean_bot_response, clean_prompt, count_tokens, extract_reasoning_content, get_edited_messages, remove_thinking_blocks
 from .utility.context_manager import ContextManager, TrimResult
 from .utility.replacehelper import PromptFormatter, replace_variables_dict
 from enum import Enum 
@@ -1627,38 +1628,50 @@ class NewelleController:
             r += self.handlers.rag.get_context(
                 chat[-1]["Message"], self.get_history(chat=chat)
             )
-        if (
-            self.newelle_settings.rag_on_documents
-            and self.handlers.rag is not None
-        ):
-            documents = extract_supported_files(
-                self.get_history(chat=chat, include_last_message=True),
-                self.handlers.rag.get_supported_files_reading(),
-                self.handlers.llm.get_supported_files()
-            )
-            if len(documents) > 0:
-                existing_index = self.chat_documents_index.get(chat_id, None)
-                
-                if self.ui_controller:
-                     GLib.idle_add(self.ui_controller.add_reading_widget, documents)
-
-                if existing_index is None:
-                    existing_index = self.handlers.rag.build_index(documents)
-                    self.chat_documents_index[chat_id] = existing_index
-                else:
-                    existing_index.update_index(documents)
-                
-                if existing_index.get_index_size() > self.newelle_settings.rag_limit: 
-                    r += existing_index.query(
-                        clean_prompt(chat[-1]["Message"])
-                    )
-                else:
-                    r += existing_index.get_all_contexts()
-                
-                if self.ui_controller:
-                    GLib.idle_add(self.ui_controller.remove_reading_widget)
-
+        r += self.get_document_prompt(chat, chat_id)
         return r
+
+    def get_document_prompt(self, chat, chat_id=None):
+        """Retrieve document context; explicit routing overrides automatic RAG.
+
+        A missing chat ID builds a request-local index for stateless API calls.
+        """
+        history = self.get_history(chat=chat, include_last_message=True)
+        explicit = extract_supported_files(history, ["*"], include_automatic=False)
+        rag = self.handlers.rag
+        if rag is None:
+            if explicit:
+                raise ValueError(_("A RAG provider is required for this attachment"))
+            return []
+        documents = extract_supported_files(
+            history, rag.get_supported_files_reading(),
+            self.handlers.llm.get_supported_files(),
+            include_automatic=self.newelle_settings.rag_on_documents,
+        )
+        if set(explicit) - set(documents):
+            raise ValueError(_("The selected RAG provider does not support this file type"))
+        if not documents:
+            if chat_id is not None:
+                self.chat_documents_index.pop(chat_id, None)
+            return []
+
+        existing_index = self.chat_documents_index.get(chat_id) if chat_id is not None else None
+        show_progress = self.ui_controller is not None and chat_id is not None
+        if show_progress:
+            GLib.idle_add(self.ui_controller.add_reading_widget, documents)
+        try:
+            if existing_index is None:
+                existing_index = rag.build_index(documents)
+                if chat_id is not None:
+                    self.chat_documents_index[chat_id] = existing_index
+            else:
+                existing_index.update_index(documents)
+            if existing_index.get_index_size() > self.newelle_settings.rag_limit:
+                return existing_index.query(clean_prompt(chat[-1]["Message"]))
+            return existing_index.get_all_contexts()
+        finally:
+            if show_progress:
+                GLib.idle_add(self.ui_controller.remove_reading_widget)
 
     def update_memory(self, bot_response, chat=None):
         """Update memory with bot response.
@@ -1834,6 +1847,24 @@ class NewelleController:
         message_label = ""
         try:
             t1 = time.time()
+            # Time to first token (any token, thinking included) and to the
+            # first visible token (thinking excluded). None when the model
+            # does not stream or no token arrived.
+            time_to_first_token = None
+            time_to_first_token_no_thinking = None
+
+            def timed_update_callback(partial_message, *args):
+                nonlocal time_to_first_token, time_to_first_token_no_thinking
+                elapsed = time.time() - t1
+                if time_to_first_token is None:
+                    time_to_first_token = elapsed
+                if (
+                    time_to_first_token_no_thinking is None
+                    and remove_thinking_blocks(str(partial_message)).strip()
+                ):
+                    time_to_first_token_no_thinking = elapsed
+                update_callback(partial_message, *args)
+
             model = self.get_model_for_chat(chat)
             send_history = history.copy()
             if model.stream_enabled():
@@ -1841,7 +1872,7 @@ class NewelleController:
                     chat[-1]["Message"],
                     send_history,
                     prompts,
-                    update_callback,
+                    timed_update_callback,
                     [stream_number_variable], 
                 )
             else:
@@ -1897,6 +1928,8 @@ class NewelleController:
             'input_tokens': input_tokens,
             'output_tokens': output_tokens,
             'time': last_generation_time,
+            'time_to_first_token': time_to_first_token,
+            'time_to_first_token_no_thinking': time_to_first_token_no_thinking,
             'trim_result': getattr(self, 'last_trim_result', None),
             'response_metadata': response_metadata,
         })

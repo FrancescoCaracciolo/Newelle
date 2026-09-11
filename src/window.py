@@ -2019,25 +2019,35 @@ class MainWindow(Adw.ApplicationWindow):
         GLib.idle_add(idle_record)
 
     # Screen recording
-    def start_screen_recording(self, button):
-        """Start screen recording"""
-        if self.video_recorder is None:
-            self.video_recorder = ScreenRecorder(self)
-            self.video_recorder.start()
-            if self.video_recorder.recording:
-                self.screen_record_button.set_icon_name("media-playback-stop-symbolic")
-                self.screen_record_button.set_css_classes(
-                    ["destructive-action", "circular"]
-                )
-            else:
-                self.video_recorder = None
-        else:
-            self.screen_record_button.set_visible(False)
-            self.video_recorder.stop()
-            self.screen_record_button.set_icon_name("media-record-symbolic")
-            self.screen_record_button.set_css_classes(["flat"])
-            self.add_file(file_path=self.video_recorder.output_path + ".mp4")
-            self.video_recorder = None
+    def start_screen_recording(self, button, tab=None):
+        """Record asynchronously, keeping callbacks bound to the owning tab."""
+        if tab is None:
+            tab = self.get_active_chat_tab()
+        if tab is None:
+            return
+        if tab.video_recorder is not None:
+            button.set_sensitive(False)
+            tab.video_recorder.stop()
+            return
+
+        def started():
+            button.set_sensitive(True)
+            button.set_icon_name("media-playback-stop-symbolic")
+            button.set_css_classes(["destructive-action", "circular"])
+
+        def finished(path):
+            button.set_sensitive(True)
+            button.set_icon_name("media-record-symbolic")
+            button.set_css_classes(["flat"])
+            if tab.video_recorder is recorder:
+                tab.video_recorder = None
+                if path is not None:
+                    tab.add_file(file_path=path)
+
+        recorder = ScreenRecorder(self, on_started=started, on_finished=finished)
+        tab.video_recorder = recorder
+        button.set_sensitive(False)
+        recorder.start()
 
     # File attachment
     def attach_file(self, button):
@@ -2058,10 +2068,7 @@ class MainWindow(Adw.ApplicationWindow):
             name=_("LLM Supported Files"), patterns=file_patterns
         )
         second_file_filter = None
-        if (
-            self.rag_handler is not None
-            and self.controller.newelle_settings.rag_on_documents
-        ):
+        if self.rag_handler is not None:
             second_file_filter = Gtk.FileFilter(
                 name=_("RAG Supported files"),
                 patterns=self.rag_handler.get_supported_files(),
