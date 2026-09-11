@@ -1349,6 +1349,8 @@ class ChatHistory(Gtk.Box):
         input_tokens = prompt_data.get("InputTokens", 0)
         output_tokens = prompt_data.get("OutputTokens", 0)
         elapsed = prompt_data.get("enlapsed", 0.0)
+        time_to_first_token = prompt_data.get("TimeToFirstToken")
+        time_to_first_token_no_thinking = prompt_data.get("TimeToFirstTokenNoThinking")
 
         speed = 0.0
         if elapsed > 0:
@@ -1381,6 +1383,20 @@ class ChatHistory(Gtk.Box):
 
         row_output = Adw.ActionRow(title=_("Output Tokens"), subtitle=str(output_tokens))
         stats_group.add(row_output)
+
+        if time_to_first_token is not None:
+            row_ttft = Adw.ActionRow(
+                title=_("Time to First Token"),
+                subtitle=f"{time_to_first_token:.2f} s",
+            )
+            stats_group.add(row_ttft)
+
+        if time_to_first_token_no_thinking is not None:
+            row_ttft_no_thinking = Adw.ActionRow(
+                title=_("Time to First Token (without thinking)"),
+                subtitle=f"{time_to_first_token_no_thinking:.2f} s",
+            )
+            stats_group.add(row_ttft_no_thinking)
 
         row_speed = Adw.ActionRow(title=_("Generation Speed"), subtitle=f"{speed:.2f} tokens/s")
         stats_group.add(row_speed)
