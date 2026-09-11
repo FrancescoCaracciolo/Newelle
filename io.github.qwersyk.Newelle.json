@@ -12,8 +12,7 @@
         "--socket=wayland",
         "--talk-name=org.freedesktop.Flatpak",
         "--filesystem=home",
-        "--socket=pulseaudio",
-        "--talk-name=org.gnome.Shell.Screencast"
+        "--socket=pulseaudio"
     ],
     "cleanup" : [
         "/include",
