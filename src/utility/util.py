@@ -21,13 +21,24 @@ from .media import (
 _ = gettext.gettext
 
 
-class _ResponseText(str):
-    """A normal string carrying JSON-safe provider state for its chat message."""
+class LLMResponse(str):
+    """Generated text with optional JSON-safe provider state and usage.
 
-    def __new__(cls, value: str, response_metadata: dict | None = None):
+    Usage contains provider-reported counts such as input_tokens, output_tokens,
+    cache_read_tokens and cache_write_tokens. Omit unknown counts; zero means
+    a measured zero. Read attributes before string operations, which return
+    plain strings. Streaming handlers attach usage to their final return value.
+    """
+
+    def __new__(cls, value: str, response_metadata: dict | None = None, *, usage: dict | None = None):
         result = super().__new__(cls, value)
         result.response_metadata = response_metadata
+        result.usage = dict(usage) if usage is not None else None
         return result
+
+
+# Keep legacy imports, positional construction and persisted references working.
+_ResponseText = LLMResponse
 
 
 def _normalize_arguments_for_id(arguments) -> str:

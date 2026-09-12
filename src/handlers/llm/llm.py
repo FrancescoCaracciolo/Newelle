@@ -2,11 +2,20 @@ from abc import abstractmethod
 from typing import Callable, Any
 import json
 from ..handler import Handler
+from ...utility.util import LLMResponse
 from ...utility.media import extract_image, prepare_file_message, prepare_audio_message, audio_text
 from ...utility.strings import extract_json
 
+__all__ = ["LLMHandler", "LLMResponse"]
+
 class LLMHandler(Handler):
-    """Every LLM model handler should extend this class."""
+    """Every LLM model handler should extend this class.
+
+    Generation methods may return plain str or LLMResponse with optional usage
+    and provider state. For example: LLMResponse(text, usage={"input_tokens": 42}).
+    Metadata belongs to each response, never shared handler state. Streaming
+    callbacks remain text-only; return metadata with the final complete text.
+    """
     history = []
     prompts = []
     schema_key = "llm-settings"

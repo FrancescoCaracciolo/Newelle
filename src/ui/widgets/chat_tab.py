@@ -1080,6 +1080,7 @@ class ChatTab(Gtk.Box):
         message_label = data['message']
         prompts = data['prompts']
         response_metadata = data.get('response_metadata')
+        response_usage = data.get('usage')
         self.last_generation_time = data['time']
         self.last_token_num = (data['input_tokens'], data['output_tokens'])
         self.last_time_to_first_token = data.get('time_to_first_token')
@@ -1100,6 +1101,8 @@ class ChatTab(Gtk.Box):
             }
             if response_metadata is not None:
                 assistant_entry["OpenAIResponse"] = response_metadata
+            if response_usage is not None:
+                assistant_entry["LLMUsage"] = dict(response_usage)
             self.chat.append(assistant_entry)
             self.chat_history.update_history(self.chat)
             self.add_prompt("\n".join(prompts))
@@ -1175,12 +1178,15 @@ class ChatTab(Gtk.Box):
                 "\n".join(prompts),
             )
             if (
-                response_metadata is not None
+                (response_metadata is not None or response_usage is not None)
                 and assistant_index < len(self.chat)
                 and self.chat[assistant_index].get("User") == "Assistant"
                 and self.chat[assistant_index].get("Message") == message_label
             ):
-                self.chat[assistant_index]["OpenAIResponse"] = response_metadata
+                if response_metadata is not None:
+                    self.chat[assistant_index]["OpenAIResponse"] = response_metadata
+                if response_usage is not None:
+                    self.chat[assistant_index]["LLMUsage"] = dict(response_usage)
                 self.save_chat()
         
         if waiting_for_tools:

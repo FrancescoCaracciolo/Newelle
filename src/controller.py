@@ -1915,6 +1915,7 @@ class NewelleController:
                 return
             raw_message_label = str(message_label)
             response_metadata = getattr(message_label, "response_metadata", None)
+            response_usage = getattr(message_label, "usage", None)
             
             # Post-generation logic
             last_generation_time = time.time() - t1
@@ -1970,6 +1971,7 @@ class NewelleController:
             'time_to_first_token_no_thinking': time_to_first_token_no_thinking,
             'trim_result': getattr(self, 'last_trim_result', None),
             'response_metadata': response_metadata,
+            'usage': response_usage,
         })
 
     def run_llm_with_tools(
@@ -2203,6 +2205,7 @@ class NewelleController:
                     return ""
                 response_text = str(response)
                 response_metadata = getattr(response, "response_metadata", None)
+                response_usage = getattr(response, "usage", None)
                 chunks = get_message_chunks(response_text)
                 
                 text_content = ""
@@ -2246,6 +2249,8 @@ class NewelleController:
                     }
                     if response_metadata is not None:
                         assistant_entry["OpenAIResponse"] = response_metadata
+                    if response_usage is not None:
+                        assistant_entry["LLMUsage"] = dict(response_usage)
                     current_history.append(assistant_entry)
                     if save_chat:
                         stored_entry = {
@@ -2281,6 +2286,8 @@ class NewelleController:
                 }
                 if response_metadata is not None:
                     assistant_entry["OpenAIResponse"] = response_metadata
+                if response_usage is not None:
+                    assistant_entry["LLMUsage"] = dict(response_usage)
                 current_history.append(assistant_entry)
                 if save_chat:
                     self.chats[chat_id]["chat"].append({
