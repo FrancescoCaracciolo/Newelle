@@ -507,7 +507,7 @@ class Message(Gtk.Box):
                 codeblocks = {**self.controller.extensionloader.codeblocks, **self.controller.integrationsloader.codeblocks}
                 if not self.streaming and new_chunk.lang in codeblocks:
                     return False
-                if new_chunk.lang in ["video", "image", "chart", "file", "file_direct", "file_rag", "folder"]: return False
+                if new_chunk.lang in ["audio", "video", "image", "chart", "file", "file_direct", "file_rag", "folder"]: return False
                 return True
             return True
         if w_type == "thinking": return True
@@ -920,6 +920,19 @@ class Message(Gtk.Box):
             box.append(think)
         elif lang == "image":
             self._process_image_codeblock(text, box)
+        elif lang == "audio":
+            for path in text.strip().splitlines():
+                box.append(Gtk.Label(label=_("Audio recording"), xalign=0))
+                media = Gtk.MediaFile.new_for_filename(path)
+                box.append(Gtk.MediaControls(media_stream=media))
+                history = self._get_chat_history()
+                if history is not None and 0 <= self.id_message < len(history.chat):
+                    status = history.chat[self.id_message].get("Audio", {}).get("status")
+                    if status in ("pending", "failed"):
+                        box.append(Gtk.Label(
+                            label=_("Transcribing…") if status == "pending" else _("Transcript unavailable"),
+                            xalign=0, css_classes=["dim-label"],
+                        ))
         elif lang == "video":
             self._process_video_codeblock(text, box)
         elif lang == "console" and not is_user:

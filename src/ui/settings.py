@@ -1,3 +1,4 @@
+from gettext import gettext as _
 from typing import Any
 import threading 
 import os 
@@ -215,6 +216,7 @@ class Settings(Adw.Window):
         for tts_key in AVAILABLE_TTS:
            row = self.build_row(AVAILABLE_TTS, tts_key, selected, group) 
            tts_program.add_row(row)
+        self.build_audio_input_settings()
         # Build the Speech to Text settings
         stt_engine = Adw.ExpanderRow(title=_('Speech To Text Engine'), subtitle=_("Choose which speech recognition engine you want"))
         self.Voicegroup.add(stt_engine)
@@ -238,6 +240,14 @@ class Settings(Adw.Window):
         self.settings.bind("wakeword-on", wakeword_enabled, 'active',
                            Gio.SettingsBindFlags.DEFAULT)
         self.wakeword_row.add_action(wakeword_enabled)
+
+        voice_mode_row = Adw.SwitchRow(
+            title=_("Open voice pill"),
+            subtitle=_("Say the wakeword, then speak your request when the voice pill opens"),
+        )
+        self.settings.bind("wakeword-voice-mode", voice_mode_row, "active",
+                           Gio.SettingsBindFlags.DEFAULT)
+        self.wakeword_row.add_row(voice_mode_row)
 
         # Wakeword mode toggle group
         mode_row = Adw.ActionRow(title=_('Detection Method'), subtitle=_("Choose wakeword detection method"))
@@ -3604,6 +3614,23 @@ class Settings(Adw.Window):
         )
         shortcut_info.add_prefix(Gtk.Image(icon_name="preferences-desktop-keyboard-shortcuts-symbolic"))
         group.add(shortcut_info)
+
+    def build_audio_input_settings(self):
+        direct = Adw.SwitchRow(title=_("Direct audio input"), subtitle=_("Send recordings to an audio-capable language model"))
+        transcribe = Adw.SwitchRow(title=_("Transcribe audio"), subtitle=_("Use the selected speech recognition engine to add a transcript"))
+        timing = Adw.ComboRow(title=_("Transcription timing"), subtitle=_("Before sending uses the transcript for context; after sending uses previous messages only"))
+        self.settings.bind("direct-audio-input", direct, "active", Gio.SettingsBindFlags.DEFAULT)
+        self.settings.bind("audio-transcribe", transcribe, "active", Gio.SettingsBindFlags.DEFAULT)
+        helper = ComboRowHelper(timing, ((_("Before sending"), "before"), (_("After sending"), "after")), self.settings.get_string("audio-transcription-timing"))
+        helper.connect("changed", lambda _helper, value: self.settings.set_string("audio-transcription-timing", value))
+        def refresh(*_args):
+            transcribe.set_sensitive(direct.get_active())
+            timing.set_sensitive(direct.get_active() and transcribe.get_active())
+        direct.connect("notify::active", refresh)
+        transcribe.connect("notify::active", refresh)
+        refresh()
+        for row in (direct, transcribe, timing):
+            self.Voicegroup.add(row)
 
     def build_auto_stt(self):
         auto_stt_enabled = Gtk.Switch(valign=Gtk.Align.CENTER)

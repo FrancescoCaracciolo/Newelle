@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist gettext-domain="newelle">
 	<schema id="io.github.qwersyk.Newelle" path="/io/github/qwersyk/Newelle/">
+        <key name="direct-audio-input" type="b"><default>false</default></key>
+        <key name="audio-transcribe" type="b"><default>false</default></key>
+        <key name="audio-transcription-timing" type="s">
+            <choices><choice value="before"/><choice value="after"/></choices>
+            <default>'before'</default>
+        </key>
         <key name="offers" type="i">
             <default>0</default>
         </key>
@@ -254,6 +260,9 @@
         </key>
         <!-- Wakeword settings -->
         <key name="wakeword-on" type="b">
+            <default>false</default>
+        </key>
+        <key name="wakeword-voice-mode" type="b">
             <default>false</default>
         </key>
         <key name="wakeword-mode" type="s">

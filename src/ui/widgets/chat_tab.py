@@ -1014,6 +1014,10 @@ class ChatTab(Gtk.Box):
             self.auto_run_times = 0
             self.tool_call_count = 0
         
+        if manual or not hasattr(self, "_audio_cancel_event"):
+            self._audio_cancel_event = threading.Event()
+        audio_cancel_event = self._audio_cancel_event
+        origin_chat_id = self._chat_id
         self.stream_number_variable += 1
         stream_number_variable = self.stream_number_variable
         self.status = False
@@ -1042,7 +1046,8 @@ class ChatTab(Gtk.Box):
             for status, data in self.controller.generate_response(
                 stream_number_variable, 
                 self.update_message,
-                chat_id=self._chat_id
+                chat_id=self._chat_id,
+                is_current=lambda: not audio_cancel_event.is_set() and self._chat_id == origin_chat_id,
             ):
                 if self.stream_number_variable != stream_number_variable:
                     break
@@ -1454,6 +1459,8 @@ class ChatTab(Gtk.Box):
         
     def stop_chat(self):
         """Stop the current generation."""
+        if hasattr(self, "_audio_cancel_event"):
+            self._audio_cancel_event.set()
         getattr(self, "active_generation_model", self.model).stop()
         for tool_result in self.active_tool_results:
             tool_result.cancel()
@@ -1660,7 +1667,7 @@ class ChatTab(Gtk.Box):
         except TypeError:
             # Handler was not connected to this function
             pass
-        self.window.start_recording(button)
+        self.window.start_recording(button, self)
 
     def set_mic_warning(self):
         """Set mic button to warning state (yellow) when speech is detected."""

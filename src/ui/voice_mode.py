@@ -516,7 +516,7 @@ class VoicePillX11Helper:
 
 
 class VoiceModeWindow(Gtk.Window):
-    """Desktop-anchored, one-shot speech → tools → TTS surface."""
+    """Desktop-anchored speech → tools → TTS conversation surface."""
 
     SAMPLE_RATE = 16000
     CHUNK_SIZE = 512
@@ -530,6 +530,7 @@ class VoiceModeWindow(Gtk.Window):
         self.settings = self.controller.settings
         self.on_closed = on_closed
         self.session = VoiceSessionController()
+        self.chat_id = None
         self._cancel_event = self.session.cancel_event
         self._recording_thread = None
         self._processing_thread = None
@@ -1335,12 +1336,14 @@ class VoiceModeWindow(Gtk.Window):
 
     def _process_capture(self, audio_data: bytes):
         audio_path = None
+        cancel_event = self._cancel_event
         try:
             if self._cancel_event.is_set() or self._closing or self._destroying:
                 return
             GLib.idle_add(self._set_state, VoiceSessionState.TRANSCRIBING)
             stt = getattr(self.controller.handlers, "stt", None)
-            if stt is None or not stt.is_installed():
+            direct_audio = self.settings.get_boolean("direct-audio-input")
+            if not direct_audio and (stt is None or not stt.is_installed()):
                 GLib.idle_add(self._show_error, _("Speech recognition unavailable"))
                 return
 
@@ -1357,7 +1360,11 @@ class VoiceModeWindow(Gtk.Window):
                 wav_file.setframerate(self.SAMPLE_RATE)
                 wav_file.writeframes(audio_data)
 
-            text = stt.recognize_file(audio_path)
+            if direct_audio:
+                text = self.controller.audio_input.prepare_audio_input(
+                    audio_path, lambda: not cancel_event.is_set() and not self._closing and not self._destroying)
+            else:
+                text = stt.recognize_file(audio_path)
             if self._cancel_event.is_set():
                 return
             if not text or not text.strip():
@@ -1370,7 +1377,9 @@ class VoiceModeWindow(Gtk.Window):
                 return
 
             GLib.idle_add(self._set_state, VoiceSessionState.RUNNING)
-            chat_id = self.controller.create_voice_chat()
+            # Keep prior turns when capture restarts after each response.
+            if self.chat_id is None:
+                self.chat_id = self.controller.create_voice_chat()
             configured_mode = self.settings.get_string("voice-mode-mode")
             mode_name = None if configured_mode in ("", "current") else configured_mode
             if (
@@ -1409,7 +1418,8 @@ class VoiceModeWindow(Gtk.Window):
             try:
                 response = self.controller.run_llm_with_tools(
                     message=text.strip(),
-                    chat_id=chat_id,
+                    is_current=lambda: not cancel_event.is_set() and not self._closing and not self._destroying,
+                    chat_id=self.chat_id,
                     on_message_callback=on_message,
                     on_tool_result_callback=on_tool_result,
                     on_tool_start_callback=on_tool_start,
@@ -1433,7 +1443,7 @@ class VoiceModeWindow(Gtk.Window):
 
             print(f"Voice Mode request error: {exc}")
             print(traceback.format_exc())
-            GLib.idle_add(self._show_error, _("Voice command failed"))
+            GLib.idle_add(self._show_error, str(exc))
         finally:
             self._processing_thread = None
             if audio_path is not None:

@@ -8,7 +8,7 @@ import uuid
 import time 
 
 from .llm import LLMHandler
-from ...utility.media import extract_image, extract_video, extract_file
+from ...utility.media import extract_image, extract_video, extract_file, extract_audio
 from ...utility.pip import find_module
 from ...utility.system import open_website
 from ...utility import extract_tools_from_prompts, VOID_TOOL_RESULT_PLACEHOLDER
@@ -140,6 +140,9 @@ class GeminiHandler(LLMHandler):
     @staticmethod
     def get_extra_requirements() -> list:
         return ["google-genai"]
+
+    def supports_audio(self) -> bool:
+        return True
 
     def supports_vision(self) -> bool:
         return True
@@ -350,7 +353,9 @@ class GeminiHandler(LLMHandler):
         from google.genai import Client 
         client = Client(api_key=self.get_setting("apikey"))
         img = None
-        image, text = extract_image(message)
+        image, text = extract_audio(message)
+        if image is None:
+            image, text = extract_image(message)
         if image is None:
             image, text = extract_video(message)
             if image is None:

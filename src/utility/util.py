@@ -1,3 +1,4 @@
+import base64
 import fnmatch
 import gettext
 import hashlib
@@ -8,9 +9,11 @@ import time
 
 from .media import (
     extract_image,
+    extract_audio,
     get_file_base64,
     get_image_base64,
     prepare_file_message,
+    prepare_audio_message,
     save_api_attachment,
     video_frame_content,
 )
@@ -422,7 +425,7 @@ def extract_tools_from_prompts(prompts: list[str], remove_tool_prompt: bool = Tr
                 new_prompts.append(prompt)
     return tools_json, new_prompts
 
-def convert_history_openai(history: list, prompts: list, vision_support : bool = False, native_tool_calling: bool = True, keep_reasoning_content: bool = True, supported_files: list | None = None, video_support: bool = False, video_mode: str = "native"):
+def convert_history_openai(history: list, prompts: list, vision_support : bool = False, native_tool_calling: bool = True, keep_reasoning_content: bool = True, supported_files: list | None = None, video_support: bool = False, video_mode: str = "native", audio_support: bool = False):
     """Converts Newelle history into OpenAI format
 
     Args:
@@ -442,6 +445,17 @@ def convert_history_openai(history: list, prompts: list, vision_support : bool =
         result.append({"role": "system", "content": "\n".join(prompts)})
     
     for msg_idx, message in enumerate(history):
+        if message.get("User") == "User":
+            message = {**message, "Message": prepare_audio_message(message.get("Message", ""), audio_support)}
+        audio_path, audio_caption = extract_audio(message.get("Message", ""))
+        if audio_path and audio_support and message.get("User") == "User":
+            with open(audio_path, "rb") as recording:
+                data = base64.b64encode(recording.read()).decode("ascii")
+            content = [{"type": "input_audio", "input_audio": {"data": data, "format": "wav"}}]
+            if audio_caption.strip():
+                content.insert(0, {"type": "text", "text": audio_caption})
+            result.append({"role": "user", "content": content})
+            continue
         if message.get("User") == "User":
             message = {**message, "Message": prepare_file_message(message["Message"])}
         if message["User"] == "Console":

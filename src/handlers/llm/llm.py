@@ -2,7 +2,7 @@ from abc import abstractmethod
 from typing import Callable, Any
 import json
 from ..handler import Handler
-from ...utility.media import extract_image, prepare_file_message
+from ...utility.media import extract_image, prepare_file_message, prepare_audio_message, audio_text
 from ...utility.strings import extract_json
 
 class LLMHandler(Handler):
@@ -42,6 +42,10 @@ class LLMHandler(Handler):
     def is_secondary(self) -> bool:
         """ Return if the LLM is a secondary one"""
         return self.schema_key == "llm-secondary-settings"
+
+    def supports_audio(self) -> bool:
+        """Whether the configured model and endpoint accept audio input."""
+        return False
 
     def supports_vision(self) -> bool:
         """ Return if the LLM supports receiving images"""
@@ -149,8 +153,8 @@ class LLMHandler(Handler):
         Returns:
             str: Response of the bot
         """        
-        history = [{**item, "Message": prepare_file_message(item["Message"])} if item.get("User") == "User" else item for item in history]
-        return self.generate_text(prepare_file_message(message), history, system_prompt)
+        history = [{**item, "Message": prepare_file_message(prepare_audio_message(item["Message"], self.supports_audio()))} if item.get("User") == "User" else item for item in history]
+        return self.generate_text(prepare_file_message(prepare_audio_message(message, self.supports_audio())), history, system_prompt)
 
     def send_message_stream(self, message:str, history: list[dict[str, str]] = [], system_prompt: list[str] = [], on_update: Callable[[str], Any] = (), extra_args : list = []) -> str:
         """Send a message to the bot
@@ -164,8 +168,8 @@ class LLMHandler(Handler):
         Returns:
             str: Response of the bot
         """        
-        history = [{**item, "Message": prepare_file_message(item["Message"])} if item.get("User") == "User" else item for item in history]
-        return self.generate_text_stream(prepare_file_message(message), history, system_prompt, on_update, extra_args)
+        history = [{**item, "Message": prepare_file_message(prepare_audio_message(item["Message"], self.supports_audio()))} if item.get("User") == "User" else item for item in history]
+        return self.generate_text_stream(prepare_file_message(prepare_audio_message(message, self.supports_audio())), history, system_prompt, on_update, extra_args)
  
     def get_suggestions(self, request_prompt:str = "", amount:int=1, history: list[dict[str, str]] = []) -> list[str]:
         """Get suggestions for the current chat. The default implementation expects the result as a JSON Array containing the suggestions
@@ -183,7 +187,7 @@ class LLMHandler(Handler):
         history = ""
         # Only get the last four elements and reconstruct partial history
         for message in history[-4:] if len(history) >= 4 else history:
-            image, text = extract_image(message["Message"])
+            image, text = extract_image(audio_text(message["Message"]))
             history += message["User"] + ": " + text + "\n"
         for i in range(0, amount):
             if req >= max_requests:
@@ -224,7 +228,7 @@ class LLMHandler(Handler):
             # next turn in the conversation and answer the user instead of naming it.
             processed_history = []
             for message in history:
-                image, text = extract_image(message["Message"])
+                image, text = extract_image(audio_text(message["Message"]))
                 processed_history.append({
                     "User": message["User"],
                     "Message": text[:500],

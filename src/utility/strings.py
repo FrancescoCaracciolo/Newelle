@@ -5,10 +5,10 @@ import xml.dom.minidom
 import json
 from gi.repository import GLib
 import tiktoken
-from .media import extract_file, extract_image, extract_video
+from .media import extract_file, extract_image, extract_video, audio_text
 
 def clean_prompt(prompt: str) -> str:
-    prompt = remove_thinking_blocks(prompt)
+    prompt = audio_text(remove_thinking_blocks(prompt))
     _, message = extract_file(prompt)
     _, message = extract_image(message)
     _, message = extract_video(message)

@@ -11,6 +11,8 @@ from .tools import Tool, ToolRegistry, ToolResult
 from .skills import SkillManager
 from .modes import ModeManager
 from .utility.media import chat_contains_vision, get_image_base64, get_image_path, extract_supported_files
+from .utility.audio_input import AudioInputManager
+from .utility.media import audio_history_text, audio_text, extract_audio
 from .utility.message_chunk import get_message_chunks, normalize_tool_arguments
 
 from .extensions import NewelleExtension
@@ -134,7 +136,7 @@ class NewelleController:
         if hasattr(self, 'chats') and hasattr(self, 'newelle_settings'):
             chat_id = self.newelle_settings.chat_id
             if chat_id in self.chats:
-                self.chats[chat_id]["chat"] = value
+                self.chats[chat_id]["chat"] = self.audio_input.merge_audio_transcripts(value, self.chats[chat_id]["chat"])
             else:
                 fallback = self._get_fallback_chat_id()
                 if fallback is not None:
@@ -161,7 +163,7 @@ class NewelleController:
             value: The new chat messages list
         """
         if hasattr(self, 'chats') and self.chats and chat_id in self.chats:
-            self.chats[chat_id]["chat"] = value
+            self.chats[chat_id]["chat"] = self.audio_input.merge_audio_transcripts(value, self.chats[chat_id]["chat"])
 
     def append_chat_message(self, chat_id: int, message: dict) -> bool:
         """Append a message to a specific chat, regardless of selected tab.
@@ -223,6 +225,7 @@ class NewelleController:
         return str(uuid_lib.uuid4())[:8]
 
     def __init__(self, python_path) -> None:
+        self.audio_input = AudioInputManager(self)
         self.settings = Gio.Settings.new(SCHEMA_ID)
         self.python_path = python_path
         self.ui_controller : UIController | None = None
@@ -1525,9 +1528,9 @@ class NewelleController:
                 return len(active_skill_manager.get_enabled_skills()) > 0
             return False
         elif name == "history":
-            return "\n".join([f"{msg['User']}: {msg['Message']}" for msg in self.get_history()])
+            return "\n".join([f"{msg['User']}: {audio_text(msg['Message'])}" for msg in self.get_history()])
         elif name == "message":
-            return self.chat[-1]["Message"]
+            return audio_text(self.chat[-1]["Message"])
         else:
             rep = replace_variables_dict()
             var = "{" + name.upper() + "}"
@@ -1603,32 +1606,30 @@ class NewelleController:
         return result.history, result
 
     def get_memory_prompt(self, chat=None, chat_id=None):
-        """Get memory and RAG context prompts.
-        
-        Args:
-            chat: Optional chat messages list. If None, uses current chat.
-            chat_id: Optional chat ID for document indexing. If None, uses current chat_id.
-        """
-        if chat is None:
-            chat = self.chat
         if chat_id is None:
             chat_id = self.newelle_settings.chat_id
-            
+        if chat is None:
+            chat = self.get_chat_by_id(chat_id)
+        has_audio = any(extract_audio(m.get("Message", ""))[0] for m in chat)
+        chat = self.audio_input.audio_retrieval_chat(chat)
+        query = next((m["Message"] for m in reversed(chat)
+                      if m.get("User") == "User" and not m.get("ToolContext") and m.get("Message", "").strip()
+                      and m["Message"] != _("[Audio message]")), "")
+        if not has_audio:
+            query = chat[-1]["Message"] if chat else ""
         r = []
-        if self.newelle_settings.memory_on:
-            memory_contexts = self.handlers.memory.get_context(
-                chat[-1]["Message"], self.get_history(chat=chat)
-            ) or []
-            r += [
-                format_source_context(context, "Saved memory", source_type="Memory")
-                for context in memory_contexts
-                if context and context.strip()
-            ]
-        if self.newelle_settings.rag_on:
-            r += self.handlers.rag.get_context(
-                chat[-1]["Message"], self.get_history(chat=chat)
-            )
-        r += self.get_document_prompt(chat, chat_id)
+        if query and self.newelle_settings.memory_on:
+            memory_contexts = self.handlers.memory.get_context(query, self.get_history(chat=chat, include_last_message=has_audio)) or []
+            r += [format_source_context(context, "Saved memory", source_type="Memory")
+                  for context in memory_contexts if context and context.strip()]
+        if query and self.newelle_settings.rag_on:
+            r += self.handlers.rag.get_context(query, self.get_history(chat=chat, include_last_message=has_audio))
+        if chat:
+            # Document retrieval should use the same textual query, not a later tool result.
+            documents_chat = copy.deepcopy(chat)
+            if has_audio:
+                documents_chat.append({"User": "User", "Message": query})
+            r += self.get_document_prompt(documents_chat, chat_id)
         return r
 
     def get_document_prompt(self, chat, chat_id=None):
@@ -1667,7 +1668,8 @@ class NewelleController:
             else:
                 existing_index.update_index(documents)
             if existing_index.get_index_size() > self.newelle_settings.rag_limit:
-                return existing_index.query(clean_prompt(chat[-1]["Message"]))
+                query = clean_prompt(chat[-1]["Message"]).strip()
+                return existing_index.query(query) if query else []
             return existing_index.get_all_contexts()
         finally:
             if show_progress:
@@ -1683,10 +1685,24 @@ class NewelleController:
         if chat is None:
             chat = self.chat
         if self.newelle_settings.memory_on:
-            threading.Thread(
-                target=self.handlers.memory.register_response,
-                args=(bot_response, chat),
-            ).start()
+            snapshot = copy.deepcopy(chat)
+            memory = self.handlers.memory
+            def register():
+                current_user = next((entry for entry in reversed(snapshot)
+                                     if entry.get("User") == "User" and not entry.get("ToolContext")), None)
+                for entry in snapshot:
+                    path, _caption = extract_audio(entry.get("Message", ""))
+                    state = self.audio_input.get_state(path)
+                    if state and state["started"] and state["status"] == "pending" and state["is_current"]():
+                        state["done"].wait()
+                    if state and entry is current_user:
+                        if not state["is_current"]() or not any(
+                            saved.get("UUID") == state["uuid"]
+                            for saved in self.get_chat_by_id(state["chat_id"])
+                        ):
+                            return
+                memory.register_response(bot_response, audio_history_text(self.audio_input.merge_audio_transcripts(snapshot)))
+            threading.Thread(target=register, daemon=True).start()
 
     def get_vision_model(self) -> LLMHandler:
         """Return the model configured to handle image and video chats."""
@@ -1729,6 +1745,7 @@ class NewelleController:
         chat_id: int,
         mode_name: str | None = None,
         skill_manager: SkillManager | None = None,
+        audio_turn=None,
     ) -> list[str]:
         """Build the live system prompt used by the agent tool loop.
 
@@ -1744,8 +1761,9 @@ class NewelleController:
         )
         formatter = PromptFormatter(
             simple_vars,
-            lambda name: self.get_variable(
-                name, mode_name=mode_name, skill_manager=active_skill_manager
+            lambda name: self.audio_input.audio_prompt_variable(
+                name, audio_turn,
+                lambda variable: self.get_variable(variable, mode_name=mode_name, skill_manager=active_skill_manager),
             ),
         )
         for prompt in self.newelle_settings.get_bot_prompts(mode_name):
@@ -1753,7 +1771,7 @@ class NewelleController:
         prompts += self.get_memory_prompt(chat_id=chat_id)
         return prompts
 
-    def prepare_generation(self, chat_id=None):
+    def prepare_generation(self, chat_id=None, audio_turn=None):
         """Prepare contexts and prompts for generation.
 
         Args:
@@ -1772,13 +1790,16 @@ class NewelleController:
             return None, None, None, None, None, None
 
         chat = self.get_chat_by_id(effective_chat_id)
+        if audio_turn is not None:
+            chat = self.audio_input.audio_request_history(chat, audio_turn)
 
         # Save profile for generation
         self.chats[effective_chat_id]["profile"] = self.newelle_settings.current_profile
 
         # Append extensions prompts
         prompts = []
-        formatter = PromptFormatter(replace_variables_dict(), self.get_variable)
+        formatter = PromptFormatter(replace_variables_dict(),
+                                    lambda name: self.audio_input.audio_prompt_variable(name, audio_turn, self.get_variable))
         for prompt in self.newelle_settings.bot_prompts:
             prompts.append(formatter.format(prompt))
 
@@ -1795,12 +1816,12 @@ class NewelleController:
         chat, prompts = self.extensionloader.preprocess_history(processed_chat, prompts)
 
         # Update the chat in storage if it was modified
-        self.set_chat_by_id(effective_chat_id, chat)
+        self.set_chat_by_id(effective_chat_id, copy.deepcopy(chat) if audio_turn else chat)
 
         return prompts, history, old_history, old_user_prompt, chat, effective_chat_id
 
 
-    def generate_response(self, stream_number_variable, update_callback, chat_id=None):
+    def generate_response(self, stream_number_variable, update_callback, chat_id=None, is_current=None):
         """
         Generator for the response.
         Yields (status, data) tuples.
@@ -1811,7 +1832,12 @@ class NewelleController:
             update_callback: Callback for streaming updates
             chat_id: Optional chat ID to use. If None, uses current chat_id from settings.
         """
-        prompts, history, old_history, old_user_prompt, chat, effective_chat_id = self.prepare_generation(chat_id=chat_id)
+        try:
+            audio_turn = self.audio_input.bind_audio_turn(chat_id if chat_id is not None else self.newelle_settings.chat_id, is_current)
+            prompts, history, old_history, old_user_prompt, chat, effective_chat_id = self.prepare_generation(chat_id=chat_id, audio_turn=audio_turn)
+        except Exception as exc:
+            yield ('error', str(exc))
+            return
 
         # Handle invalid chat_id
         if prompts is None:
@@ -1836,12 +1862,15 @@ class NewelleController:
         if chat[-1]["Message"] != old_user_prompt:
              yield ('reload_message', len(chat) - 1)
 
+        request_chat = self.audio_input.audio_request_history(chat, audio_turn)
+        new_history = self.audio_input.audio_request_history(new_history, audio_turn)
+
         # Extensions may change both the history and prompts. Trim only their
         # effective result so the context manager's selection is what is sent.
         history, _ = self._trim_context(
             new_history,
             prompts,
-            chat[-1]["Message"],
+            self.audio_input.audio_context_query(request_chat[-1]["Message"], audio_turn),
         )
 
         message_label = ""
@@ -1866,18 +1895,24 @@ class NewelleController:
                 update_callback(partial_message, *args)
 
             model = self.get_model_for_chat(chat)
-            send_history = history.copy()
+            send_history = copy.deepcopy(history)
+            request_message = request_chat[-1]["Message"]
+            if is_current is not None and not is_current():
+                return
+            self.audio_input.start_audio_transcription(audio_turn)
             if model.stream_enabled():
                 message_label = model.send_message_stream(
-                    chat[-1]["Message"],
+                    request_message,
                     send_history,
                     prompts,
                     timed_update_callback,
                     [stream_number_variable], 
                 )
             else:
-                message_label = model.send_message(chat[-1]["Message"], send_history, prompts)
+                message_label = model.send_message(request_message, send_history, prompts)
 
+            if is_current is not None and not is_current():
+                return
             raw_message_label = str(message_label)
             response_metadata = getattr(message_label, "response_metadata", None)
             
@@ -1919,7 +1954,10 @@ class NewelleController:
                  yield ('reload_message', message)
 
         # Update memory
-        self.update_memory(message_label, chat=chat)
+        tool_response = any(chunk.type == "tool_call" or chunk.lang == "console"
+                            for chunk in get_message_chunks(message_label))
+        if audio_turn is None or not tool_response:
+            self.update_memory(message_label, chat=chat)
         
         # Return final message and tokens
         yield ('finished', {
@@ -1950,6 +1988,7 @@ class NewelleController:
         mode_name: str | None = None,
         on_tool_start_callback: Callable[[str], None] = None,
         on_intermediate_message_callback: Callable[[str], None] = None,
+        is_current: Callable[[], bool] | None = None,
     ) -> str:
         """Run LLM with tool support integration.
 
@@ -2002,6 +2041,12 @@ class NewelleController:
             else None
         )
         active_skill_manager = skill_manager if skill_manager is not None else getattr(self, "skill_manager", None)
+        msg_uuid = int(uuid_lib.uuid4())
+        self.chats[chat_id]["chat"].append({"User": "User", "Message": message, "UUID": msg_uuid})
+        if save_chat:
+            self.save_chats()
+        audio_turn = self.audio_input.bind_audio_turn(chat_id, is_current)
+        message = self.chats[chat_id]["chat"][-1]["Message"]
         skills_integration = None
         original_skill_manager = None
         if hasattr(self, "integrationsloader") and active_skill_manager is not None:
@@ -2010,16 +2055,12 @@ class NewelleController:
                 original_skill_manager = getattr(skills_integration, "skill_manager", None)
                 skills_integration.set_skill_manager(active_skill_manager)
 
-        msg_uuid = int(uuid_lib.uuid4())
-        self.chats[chat_id]["chat"].append({"User": "User", "Message": message, "UUID": msg_uuid})
-        if save_chat:
-            self.save_chats()
         history = self.get_history(chat=self.chats[chat_id]["chat"], include_last_message=True)
         system_prompt_was_built = system_prompt is None
         if system_prompt is None:
-            _, _, _, _, _, effective_chat_id = self.prepare_generation(chat_id=chat_id)
+            _, _, _, _, _, effective_chat_id = self.prepare_generation(chat_id=chat_id, audio_turn=audio_turn)
             system_prompt = self._build_tool_system_prompt(
-                effective_chat_id, mode_name, active_skill_manager
+                effective_chat_id, mode_name, active_skill_manager, audio_turn
             )
         
         # Avoid history duplication: check the last entry is the current message.
@@ -2028,7 +2069,7 @@ class NewelleController:
             and history[-1].get("User") == "User"
             and history[-1].get("Message") == message
         )
-        current_history = history.copy()
+        current_history = copy.deepcopy(history)
         # Let extensions/integrations preprocess the history and prompts before
         # generation, mirroring generate_response. Only runs when a fresh
         # system_prompt was built above; an explicit system_prompt means the
@@ -2083,7 +2124,7 @@ class NewelleController:
                     active_mode_name = current_mode_name
                     if system_prompt_was_built:
                         system_prompt = self._build_tool_system_prompt(
-                            chat_id, current_mode_name, active_skill_manager
+                            chat_id, current_mode_name, active_skill_manager, audio_turn
                         )
                         if extension_processing:
                             # Extensions can add prompt context based on history.
@@ -2137,8 +2178,11 @@ class NewelleController:
                         "more tools; return the best final answer using the results already available."
                     ]
 
-                send_history, _ = self._trim_context(request_history, request_system_prompt, message)
+                send_history, _ = self._trim_context(request_history, request_system_prompt, self.audio_input.audio_context_query(message, audio_turn))
 
+                if is_current is not None and not is_current():
+                    return ""
+                self.audio_input.start_audio_transcription(audio_turn)
                 if model.stream_enabled():
                     response = model.send_message_stream(
                         prompt,
@@ -2155,6 +2199,8 @@ class NewelleController:
                     if on_message_callback:
                         on_message_callback(response)
 
+                if is_current is not None and not is_current():
+                    return ""
                 response_text = str(response)
                 response_metadata = getattr(response, "response_metadata", None)
                 chunks = get_message_chunks(response_text)
@@ -2394,7 +2440,11 @@ class NewelleController:
                             break
                     self.set_chat_by_id(chat_id, chat_list)
                     self.save_chats()
+                if audio_turn is not None:
+                    self.update_memory(final_message, chat=self.get_chat_by_id(chat_id))
                 return final_message
+            if audio_turn is not None:
+                self.update_memory(text_content, chat=self.get_chat_by_id(chat_id))
             return text_content
         finally:
             if skills_integration is not None:
@@ -2477,6 +2527,9 @@ class NewelleSettings:
         self.tts_enabled = settings.get_boolean("tts-on")
         self.tts_program = settings.get_string("tts")
         self.tts_voice = settings.get_string("tts-voice")
+        self.direct_audio_input = settings.get_boolean("direct-audio-input")
+        self.audio_transcribe = settings.get_boolean("audio-transcribe")
+        self.audio_transcription_timing = settings.get_string("audio-transcription-timing")
         self.stt_engine = settings.get_string("stt-engine")
         self.stt_settings = settings.get_string("stt-settings")
         self.secondary_stt_engine = settings.get_string("secondary-stt-engine")
@@ -2527,6 +2580,7 @@ class NewelleSettings:
         self.file_permissions_list = json.loads(self.file_permissions)
         self.scheduled_tasks = self.settings.get_string("scheduled-tasks")
         self.wakeword_enabled = settings.get_boolean("wakeword-on")
+        self.wakeword_voice_mode = settings.get_boolean("wakeword-voice-mode")
         self.wakeword_mode = settings.get_string("wakeword-mode")
         self.wakeword_engine = settings.get_string("wakeword-engine")
         self.wakeword_engine_settings = settings.get_string("wakeword-engine-settings")
@@ -2646,7 +2700,8 @@ class NewelleSettings:
         if self.stt_engine != new_settings.stt_engine:
             reloads.append(ReloadType.STT)
 
-        if self.automatic_stt != new_settings.automatic_stt:
+        if (self.automatic_stt != new_settings.automatic_stt
+                or self.direct_audio_input != new_settings.direct_audio_input):
             if self.wakeword_enabled:
                 reloads.append(ReloadType.WAKEWORD)
 
@@ -2671,6 +2726,7 @@ class NewelleSettings:
             reloads.append(ReloadType.TOOLS)
         # Check wakeword settings
         if (self.wakeword_enabled != new_settings.wakeword_enabled or
+            self.wakeword_voice_mode != new_settings.wakeword_voice_mode or
             self.wakeword != new_settings.wakeword or
             self.wakeword_mode != new_settings.wakeword_mode or
             self.wakeword_engine != new_settings.wakeword_engine or

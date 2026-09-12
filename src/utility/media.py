@@ -386,3 +386,30 @@ def chat_contains_vision(history: list[dict]) -> bool:
         ):
             return True
     return False
+
+
+def extract_audio(message: str) -> tuple[str | None, str]:
+    """Read a recorded audio attachment without exposing its path as text."""
+    match = re.search(r"```audio\n([^\n]+)\n```\n?", message)
+    if match is None:
+        return None, message
+    return match.group(1), message[:match.start()] + message[match.end():]
+
+
+def audio_text(message: str) -> str:
+    path, text = extract_audio(message)
+    return (text.strip() or _("[Audio message]")) if path else message
+
+
+def audio_history_text(history: list) -> list:
+    return [{**m, "Message": audio_text(m.get("Message", ""))} for m in history]
+
+
+def prepare_audio_message(message: str, supported: bool) -> str:
+    """Send recordings to audio models and STT text to text-only models."""
+    path, text = extract_audio(message)
+    if path and not supported:
+        if not text.strip():
+            raise ValueError(_("The recording must be transcribed before sending it to this model."))
+        return text
+    return message

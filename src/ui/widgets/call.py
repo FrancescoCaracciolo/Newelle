@@ -1,3 +1,4 @@
+from ...utility.media import extract_audio, audio_text
 from gi.repository import Gtk, Adw, GLib, Gio, GObject, Gdk
 import threading
 import time
@@ -1151,7 +1152,8 @@ class CallPanel(Gtk.Box):
 
             # Get STT handler
             stt = self.controller.handlers.stt
-            if not stt or not stt.is_installed():
+            direct_audio = self.controller.settings.get_boolean("direct-audio-input")
+            if not direct_audio and (not stt or not stt.is_installed()):
                 GLib.idle_add(
                     self._add_message_to_history_if_current,
                     call_generation,
@@ -1162,7 +1164,11 @@ class CallPanel(Gtk.Box):
                 return
 
             # Recognize
-            text = stt.recognize_file(audio_path)
+            if direct_audio:
+                text = self.controller.audio_input.prepare_audio_input(
+                    audio_path, lambda: self._is_current_call(call_generation))
+            else:
+                text = stt.recognize_file(audio_path)
             if not self._is_current_call(call_generation) or not text or text.strip() == "":
                 return
 
@@ -1217,6 +1223,7 @@ class CallPanel(Gtk.Box):
             try:
                 response = self.controller.run_llm_with_tools(
                     message=user_message,
+                    is_current=lambda: self._is_current_call(call_generation),
                     chat_id=self.chat_id,
                     on_message_callback=on_message_callback,
                     on_tool_result_callback=on_tool_result_callback,
@@ -1247,7 +1254,7 @@ class CallPanel(Gtk.Box):
                 self._add_message_to_history_if_current,
                 call_generation,
                 "System",
-                _("Error getting response. Please try again."),
+                str(e),
                 True
             )
     
@@ -1349,15 +1356,32 @@ class CallPanel(Gtk.Box):
         )
         message_box.append(sender_label)
 
+        audio_path, _caption = extract_audio(text)
+        if audio_path:
+            message_box.append(Gtk.MediaControls(media_stream=Gtk.MediaFile.new_for_filename(audio_path)))
         # Message text
         message_label = Gtk.Label(
-            label=text,
+            label=audio_text(text),
             css_classes=["call-message-label"],
             wrap=True,
             xalign=0,
             selectable=True
         )
         message_box.append(message_label)
+        if audio_path:
+            state = self.controller.audio_input.get_state(audio_path)
+            if state is not None:
+                def update_transcript(transcript):
+                    if not state["is_current"]():
+                        return False
+                    message_label.set_label(transcript)
+                    for entry in self.chat_history_messages:
+                        if extract_audio(entry["text"])[0] == audio_path:
+                            entry["text"] = f"```audio\n{audio_path}\n```\n{transcript}"
+                    self.emit('transcript-updated', f"{sender}: {transcript}")
+                state["on_transcript"] = update_transcript
+                if state["status"] == "complete":
+                    GLib.idle_add(update_transcript, state["transcript"])
 
         self.history_box.append(message_box)
 
@@ -1372,7 +1396,7 @@ class CallPanel(Gtk.Box):
             "is_error": is_error
         })
 
-        self.emit('transcript-updated', f"{sender}: {text}")
+        self.emit('transcript-updated', f"{sender}: {audio_text(text)}")
 
     def _scroll_history_to_bottom(self):
         """Scroll history panel to bottom"""

@@ -65,6 +65,9 @@ class OpenAIHandler(LLMHandler):
     def get_extra_requirements() -> list:
         return ["openai"]
 
+    def supports_audio(self) -> bool:
+        return bool(self.get_setting("audio_input", False, False)) and not self.uses_responses_api()
+
     def supports_vision(self) -> bool:
         return True
 
@@ -119,7 +122,7 @@ class OpenAIHandler(LLMHandler):
             )
         ]
 
-    def build_extra_settings(self, provider_name: str, has_api_key: bool, has_stream_settings: bool, endpoint_change: bool, allow_advanced_params: bool, supports_automatic_models: bool, privacy_notice_url : str | None, model_list_url: str | None, default_advanced_params: bool = False, default_automatic_models: bool = False, supports_custom_body : bool = False, supports_thinking: bool = False, supports_tool_calling: bool = True, has_tool_calling_option: bool = True, supports_custom_headers: bool = False) -> list:
+    def build_extra_settings(self, provider_name: str, has_api_key: bool, has_stream_settings: bool, endpoint_change: bool, allow_advanced_params: bool, supports_automatic_models: bool, privacy_notice_url : str | None, model_list_url: str | None, default_advanced_params: bool = False, default_automatic_models: bool = False, supports_custom_body : bool = False, supports_thinking: bool = False, supports_tool_calling: bool = True, has_tool_calling_option: bool = True, supports_custom_headers: bool = False, has_audio_input_option: bool = True) -> list:
         """Helper to build the list of extra settings for OpenAI Handlers
 
         Args:
@@ -132,6 +135,7 @@ class OpenAIHandler(LLMHandler):
             privacy_notice_url: the url of the privacy policy, None if not stated
             model_list_url: human accessible page that lists the available models
             supports_thinking: if to show thinking mode and effort settings
+            has_audio_input_option: if to show the audio input capability toggle
 
         Returns:
             list containing the extra settings
@@ -224,6 +228,11 @@ class OpenAIHandler(LLMHandler):
             settings += [
                 ExtraSettings.ToggleSetting("native_tool_calling", _("Native Tool Calling"), _("Enable native tool calling (Will use API's tool calling formatting instead of Newelle's. Disable only if you have issues with tool calling or the model you are using does not support it natively)"), supports_tool_calling)
             ]
+        if has_audio_input_option:
+            settings.append(ExtraSettings.ToggleSetting(
+                "audio_input", _("Model supports audio input"),
+                _("Enable for audio-capable Chat Completions models. Unavailable with Responses API."), False,
+            ))
         if supports_custom_body:
             settings += [custom_body]
         if supports_custom_headers:
@@ -236,6 +245,7 @@ class OpenAIHandler(LLMHandler):
         return convert_history_openai(
             history, prompts, self.supports_vision(),
             self.get_setting("native_tool_calling", False, True),
+            audio_support=self.supports_audio(),
             supported_files=self.get_supported_files(),
             video_support=self.supports_video_vision(), video_mode=self.get_video_mode(),
         )
@@ -966,6 +976,8 @@ class OpenAIHandler(LLMHandler):
                 )
                 return _ResponseText(content.strip(), metadata)
             else:
+                if self.supports_audio():
+                    kwargs["modalities"] = ["text"]
                 kwargs["messages"] = messages
                 kwargs["presence_penalty"] = presence_penalty
                 kwargs["frequency_penalty"] = frequency_penalty
@@ -1061,6 +1073,8 @@ class OpenAIHandler(LLMHandler):
                     store,
                 )
             else:
+                if self.supports_audio():
+                    kwargs["modalities"] = ["text"]
                 kwargs["messages"] = messages
                 kwargs["presence_penalty"] = presence_penalty
                 kwargs["frequency_penalty"] = frequency_penalty
