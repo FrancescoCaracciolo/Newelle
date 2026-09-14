@@ -1346,8 +1346,9 @@ class ChatHistory(Gtk.Box):
         # Retrieve prompt data
         prompt_data = self.chat[id]
         prompt_text = prompt_data.get("Prompt", "")
-        input_tokens = prompt_data.get("InputTokens", 0)
-        output_tokens = prompt_data.get("OutputTokens", 0)
+        usage = prompt_data.get("LLMUsage") or {}
+        input_tokens = usage.get("input_tokens", prompt_data.get("InputTokens", 0))
+        output_tokens = usage.get("output_tokens", prompt_data.get("OutputTokens", 0))
         elapsed = prompt_data.get("enlapsed", 0.0)
         time_to_first_token = prompt_data.get("TimeToFirstToken")
         time_to_first_token_no_thinking = prompt_data.get("TimeToFirstTokenNoThinking")
@@ -1383,6 +1384,20 @@ class ChatHistory(Gtk.Box):
 
         row_output = Adw.ActionRow(title=_("Output Tokens"), subtitle=str(output_tokens))
         stats_group.add(row_output)
+
+        for key, title in (
+            ("total_tokens", _("Total Tokens")),
+            ("cache_read_tokens", _("Cached Input Tokens")),
+            ("cache_write_tokens", _("Cache Write Tokens")),
+            ("reasoning_tokens", _("Reasoning Tokens")),
+            ("input_audio_tokens", _("Input Audio Tokens")),
+            ("output_audio_tokens", _("Output Audio Tokens")),
+            ("tool_input_tokens", _("Tool Input Tokens")),
+            ("accepted_prediction_tokens", _("Accepted Prediction Tokens")),
+            ("rejected_prediction_tokens", _("Rejected Prediction Tokens")),
+        ):
+            if usage.get(key) is not None:
+                stats_group.add(Adw.ActionRow(title=title, subtitle=str(usage[key])))
 
         if time_to_first_token is not None:
             row_ttft = Adw.ActionRow(

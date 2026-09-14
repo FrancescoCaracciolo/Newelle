@@ -1928,6 +1928,9 @@ class NewelleController:
             input_tokens += count_tokens(chat[-1]["Message"])
             
             output_tokens = count_tokens(message_label)
+            if response_usage is not None:
+                input_tokens = response_usage.get("input_tokens", input_tokens)
+                output_tokens = response_usage.get("output_tokens", output_tokens)
             
             message_label = clean_bot_response(message_label)
 

@@ -25,7 +25,10 @@ class LLMResponse(str):
     """Generated text with optional JSON-safe provider state and usage.
 
     Usage contains provider-reported counts such as input_tokens, output_tokens,
-    cache_read_tokens and cache_write_tokens. Omit unknown counts; zero means
+    cache_read_tokens and cache_write_tokens. Input totals include cached tokens;
+    output totals include reasoning tokens, when reported separately by providers.
+    Cache and reasoning counts are breakdowns, not additions to those totals.
+    Omit unknown counts; zero means
     a measured zero. Read attributes before string operations, which return
     plain strings. Streaming handlers attach usage to their final return value.
     """

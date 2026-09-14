@@ -9,7 +9,7 @@ _ = gettext.gettext
 
 from .llm import LLMHandler
 from ...utility.system import open_website
-from ...utility import _ResponseText, convert_history_openai, get_streaming_extra_setting, extract_tools_from_prompts, balance_native_tool_call_responses, parse_assistant_native_tool_calls, parse_tool_console_message
+from ...utility import LLMResponse, convert_history_openai, get_streaming_extra_setting, extract_tools_from_prompts, balance_native_tool_call_responses, parse_assistant_native_tool_calls, parse_tool_console_message
 from ...handlers import ExtraSettings, ErrorSeverity
 
 
@@ -675,6 +675,38 @@ class OpenAIHandler(LLMHandler):
             visible.append("## Sources\n" + "\n".join(source_lines))
         return "\n\n".join(part for part in visible if part).strip()
 
+    @classmethod
+    def _response_usage(cls, response) -> dict:
+        usage = cls._value(response, "usage")
+        result = {}
+        for target, fields in {
+            "input_tokens": ("input_tokens", "prompt_tokens"),
+            "output_tokens": ("output_tokens", "completion_tokens"),
+            "total_tokens": ("total_tokens",),
+        }.items():
+            for field in fields:
+                value = cls._value(usage, field)
+                if value is not None:
+                    result[target] = value
+                    break
+        for fields, counts in (
+            (("input_tokens_details", "prompt_tokens_details"), {
+                "cached_tokens": "cache_read_tokens", "audio_tokens": "input_audio_tokens",
+            }),
+            (("output_tokens_details", "completion_tokens_details"), {
+                "reasoning_tokens": "reasoning_tokens", "audio_tokens": "output_audio_tokens",
+                "accepted_prediction_tokens": "accepted_prediction_tokens",
+                "rejected_prediction_tokens": "rejected_prediction_tokens",
+            }),
+        ):
+            for field in fields:
+                details = cls._value(usage, field)
+                for source, target in counts.items():
+                    value = cls._value(details, source)
+                    if value is not None:
+                        result[target] = value
+        return result
+
     def _response_metadata(
         self,
         response,
@@ -806,7 +838,7 @@ class OpenAIHandler(LLMHandler):
         if content and content != previous_preview:
             on_update(content, *tuple(extra_args))
         if cancelled or completed_response is None:
-            return content
+            return LLMResponse(content)
         metadata = self._response_metadata(
             completed_response,
             full_input,
@@ -814,7 +846,7 @@ class OpenAIHandler(LLMHandler):
             output,
             store,
         )
-        return _ResponseText(content, metadata)
+        return LLMResponse(content, metadata, usage=self._response_usage(completed_response))
 
     @staticmethod
     def _encrypted_content_include(extra_body: dict) -> list:
@@ -974,7 +1006,7 @@ class OpenAIHandler(LLMHandler):
                     output,
                     store,
                 )
-                return _ResponseText(content.strip(), metadata)
+                return LLMResponse(content.strip(), metadata, usage=self._response_usage(response))
             else:
                 if self.supports_audio():
                     kwargs["modalities"] = ["text"]
@@ -1003,7 +1035,7 @@ class OpenAIHandler(LLMHandler):
                             tool_call_dict["id"] = tc_id
                         content += "```json\n" + json.dumps(tool_call_dict) + "\n```\n"
 
-            return content.strip()
+            return LLMResponse(content.strip(), usage=self._response_usage(response))
         except Exception as e:
             raise e
     
@@ -1080,17 +1112,20 @@ class OpenAIHandler(LLMHandler):
                 kwargs["frequency_penalty"] = frequency_penalty
                 if tools_list:
                     kwargs["tools"] = tools_list
+                kwargs["stream_options"] = {"include_usage": True}
                 response = client.chat.completions.create(**kwargs)
             full_message = ""
             prev_message = ""
             is_reasoning = False
             # Track ongoing tool calls
             tool_calls = {}
+            usage = {}
 
             for chunk in response:
                 if not self.running:
                     response.close()
                     break
+                usage.update(self._response_usage(chunk))
                 if len(chunk.choices) == 0:
                     continue
                 
@@ -1156,7 +1191,7 @@ class OpenAIHandler(LLMHandler):
                         tool_call_dict["id"] = tid
                     full_message += "\n```json\n" + json.dumps(tool_call_dict) + "\n```\n"
             
-            return full_message.strip()
+            return LLMResponse(full_message.strip(), usage=usage or None)
         except Exception as e:
             raise e
 
