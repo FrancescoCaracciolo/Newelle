@@ -3616,21 +3616,25 @@ class Settings(Adw.Window):
         group.add(shortcut_info)
 
     def build_audio_input_settings(self):
-        direct = Adw.SwitchRow(title=_("Direct audio input"), subtitle=_("Send recordings to an audio-capable language model"))
+        direct = Adw.ExpanderRow(title=_("Direct audio input"), subtitle=_("Send recordings to an audio-capable language model"))
         transcribe = Adw.SwitchRow(title=_("Transcribe audio"), subtitle=_("Use the selected speech recognition engine to add a transcript"))
         timing = Adw.ComboRow(title=_("Transcription timing"), subtitle=_("Before sending uses the transcript for context; after sending uses previous messages only"))
-        self.settings.bind("direct-audio-input", direct, "active", Gio.SettingsBindFlags.DEFAULT)
+        direct_switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.settings.bind("direct-audio-input", direct_switch, "active", Gio.SettingsBindFlags.DEFAULT)
+        direct.add_suffix(direct_switch)
         self.settings.bind("audio-transcribe", transcribe, "active", Gio.SettingsBindFlags.DEFAULT)
         helper = ComboRowHelper(timing, ((_("Before sending"), "before"), (_("After sending"), "after")), self.settings.get_string("audio-transcription-timing"))
         helper.connect("changed", lambda _helper, value: self.settings.set_string("audio-transcription-timing", value))
         def refresh(*_args):
-            transcribe.set_sensitive(direct.get_active())
-            timing.set_sensitive(direct.get_active() and transcribe.get_active())
-        direct.connect("notify::active", refresh)
+            transcribe.set_sensitive(direct_switch.get_active())
+            timing.set_sensitive(direct_switch.get_active() and transcribe.get_active())
+        direct_switch.connect("notify::active", refresh)
         transcribe.connect("notify::active", refresh)
+        direct.add_row(transcribe)
+        direct.add_row(timing)
         refresh()
-        for row in (direct, transcribe, timing):
-            self.Voicegroup.add(row)
+        self.Voicegroup.add(direct)
+        direct.set_enable_expansion(self.settings.get_boolean("direct-audio-input"))
 
     def build_auto_stt(self):
         auto_stt_enabled = Gtk.Switch(valign=Gtk.Align.CENTER)
