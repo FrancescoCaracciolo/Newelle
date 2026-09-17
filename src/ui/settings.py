@@ -924,6 +924,8 @@ class Settings(Adw.Window):
         """Refresh only settings sections affected by extension changes."""
         self.extensionloader = self.controller.extensionloader
         self.handlers = self.controller.handlers
+        if "extensions" in refreshes and hasattr(self.ExtensionsPage, "update"):
+            self.ExtensionsPage.update()
         if "llm_handlers" in refreshes:
             self.refresh_llm_rows()
         if "tools" in refreshes and self.tools_page_initialized:
@@ -2270,7 +2272,7 @@ class Settings(Adw.Window):
 
         self.mcp_catalog_group = Adw.PreferencesGroup(
             title=_("Connect Application"),
-            description=_("Choose an application from the MCP catalog"),
+            description=_("Connect an MCP server or install an extension"),
         )
         self.mcp_catalog = ConnectApplicationView(
             parent=self,

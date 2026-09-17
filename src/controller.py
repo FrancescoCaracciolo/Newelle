@@ -1001,9 +1001,12 @@ class NewelleController:
         else:
             affected_ids = set(extension_ids)
 
-        refreshes = old_loader.get_contribution_types(
+        # Keep the installed-extensions settings view in sync even when the
+        # changed extension does not contribute handlers, tools, or prompts.
+        refreshes = {"extensions"}
+        refreshes.update(old_loader.get_contribution_types(
             affected_ids, include_disabled=True
-        )
+        ))
         refreshes.update(
             new_loader.get_contribution_types(
                 affected_ids, include_disabled=True
