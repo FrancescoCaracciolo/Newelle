@@ -103,6 +103,44 @@ class Message(Gtk.Box):
         self._render_serial = getattr(self, '_render_serial', 0) + 1
         GLib.idle_add(self._ui_sync_content, message, self._render_serial)
 
+    def reindex_after_deletion(self, start, end):
+        """Keep rendered content and deferred callbacks tied to their live records."""
+        def shifted(index):
+            if index < start:
+                return index
+            return index - (end - start) if index >= end else start
+
+        self.id_message = shifted(self.id_message)
+        for key in ("id_message", "original_id"):
+            self.state[key] = shifted(self.state[key])
+        # Tool result/code widgets can be parented in another message's group.
+        roots = [self]
+        for _kind, widget, _chunk in self.widgets_map:
+            roots.extend(widget if isinstance(widget, list) else [widget])
+        seen = set()
+        while roots:
+            widget = roots.pop()
+            if not isinstance(widget, Gtk.Widget) or id(widget) in seen:
+                continue
+            seen.add(id(widget))
+            if widget is not self and isinstance(widget, Message):
+                continue
+            # Shared group children belong to several messages. Visit only
+            # this message's mapped slots, not the whole shared expander.
+            if isinstance(widget, ToolCallsGroupWidget):
+                continue
+            if isinstance(widget, CopyBox):
+                widget.id_message = shifted(widget.id_message)
+            if isinstance(widget, ToolCallSlot):
+                widget.message_id = self.id_message
+                widget._compact_order = (self.id_message, widget.entry_id)
+            child = widget.get_first_child()
+            while child is not None:
+                roots.append(child)
+                child = child.get_next_sibling()
+        for widget, order in self._compact_moved_widgets.items():
+            widget._compact_order = (self.id_message, order)
+
     def _ui_sync_content(self, message: str, serial: int = -1):
         """Internal method to synchronize UI (Main Thread only)."""
         if serial != getattr(self, '_render_serial', 0):
