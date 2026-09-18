@@ -92,6 +92,14 @@
         <key name="voice-mode-mode" type="s">
             <default>"current"</default>
         </key>
+        <key name="voice-mode-feedback" type="s">
+            <choices>
+                <choice value="required"/>
+                <choice value="tools"/>
+                <choice value="full"/>
+            </choices>
+            <default>"required"</default>
+        </key>
         <key name="voice-mode-x11-override-dont-show" type="b">
             <default>false</default>
         </key>

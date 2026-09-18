@@ -3545,6 +3545,26 @@ class Settings(Adw.Window):
         )
         group.add(mode_row)
 
+        feedback_row = Adw.ComboRow(
+            title=_("Response feedback"),
+            subtitle=_("How much of the current reply the voice pill should show"),
+        )
+        feedback_modes = (
+            (_("Required only"), "required"),
+            (_("Tool widgets only"), "tools"),
+            (_("Full"), "full"),
+        )
+        helper = ComboRowHelper(
+            feedback_row,
+            feedback_modes,
+            self.settings.get_string("voice-mode-feedback"),
+        )
+        helper.connect(
+            "changed",
+            lambda _helper, value: self.settings.set_string("voice-mode-feedback", value),
+        )
+        group.add(feedback_row)
+
         theme_row = Adw.ComboRow(
             title=_("Pill theme"),
             subtitle=_("Follow Newelle or use a dedicated appearance"),
