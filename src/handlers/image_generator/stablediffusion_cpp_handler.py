@@ -349,8 +349,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         settings.append(
             ExtraSettings.ComboSetting(
                 "model",
-                "Model",
-                "Stable Diffusion model to use",
+                _("Model"),
+                _("Stable Diffusion model to use"),
                 model_list,
                 model_list[0][1] if len(model_list) > 0 else "",
                 refresh=lambda button: self._get_model_list(True),
@@ -381,18 +381,18 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         settings.append(
             ExtraSettings.ButtonSetting(
                 "library",
-                "Model Library",
-                "Browse and download curated models (SD, SDXL, SD3, FLUX, Kontext, Chroma, Qwen, Z-Image, LTX-2, Ovis, Anima, ...)",
+                _("Model Library"),
+                _("Browse and download curated models (SD, SDXL, SD3, FLUX, Kontext, Chroma, Qwen, Z-Image, LTX-2, Ovis, Anima, ...)"),
                 self.open_model_library,
-                label="Model Library",
+                label=_("Model Library"),
             )
         )
 
         settings.append(
             ExtraSettings.EntrySetting(
                 "custom_models_dir",
-                "Custom Models Directory",
-                "Additional directory to scan for model files (.safetensors, .ckpt, .gguf). Leave empty to disable.",
+                _("Custom Models Directory"),
+                _("Additional directory to scan for model files (.safetensors, .ckpt, .gguf). Leave empty to disable."),
                 "",
                 update_settings=True,
             )
@@ -403,18 +403,18 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             settings.append(
                 ExtraSettings.ButtonSetting(
                     "install",
-                    "Install StableDiffusionCPP",
-                    "Download prebuilt binaries or build from source with hardware acceleration",
+                    _("Install StableDiffusionCPP"),
+                    _("Download prebuilt binaries or build from source with hardware acceleration"),
                     self.show_install_dialog,
-                    label="Install",
+                    label=_("Install"),
                 )
             )
         else:
             settings.append(
                 ExtraSettings.ToggleSetting(
                     "gpu_acceleration",
-                    "Hardware Acceleration",
-                    "Enable hardware acceleration (requires GPU backend)",
+                    _("Hardware Acceleration"),
+                    _("Enable hardware acceleration (requires GPU backend)"),
                     False,
                 )
             )
@@ -422,18 +422,18 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 settings.append(
                     ExtraSettings.ToggleSetting(
                         "use_system_sd",
-                        "Use System sd-cli",
-                        "Use system-installed sd-cli instead of built-in (requires sd-cli on host and sandbox escape)",
+                        _("Use System sd-cli"),
+                        _("Use system-installed sd-cli instead of built-in (requires sd-cli on host and sandbox escape)"),
                         False,
                     )
                 )
             settings.append(
                 ExtraSettings.ButtonSetting(
                     "reinstall",
-                    "Reinstall",
-                    "Rebuild or re-download stable-diffusion.cpp",
+                    _("Reinstall"),
+                    _("Rebuild or re-download stable-diffusion.cpp"),
                     self.show_install_dialog,
-                    label="Reinstall",
+                    label=_("Reinstall"),
                 )
             )
 
@@ -441,16 +441,16 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             settings.append(
                 ExtraSettings.ToggleSetting(
                     "use_server",
-                    "Use sd-server",
-                    "Use the HTTP server (sd-server) instead of the CLI (sd-cli) for image generation. The server is faster for multiple generations but uses more memory.",
+                    _("Use sd-server"),
+                    _("Use the HTTP server (sd-server) instead of the CLI (sd-cli) for image generation. The server is faster for multiple generations but uses more memory."),
                     False,
                 )
             )
             settings.append(
                 ExtraSettings.SpinSetting(
                     "server_port",
-                    "Server Port",
-                    "Port for the sd-server HTTP server",
+                    _("Server Port"),
+                    _("Port for the sd-server HTTP server"),
                     17860, 1024, 65535, 1, 1, 0,
                 )
             )
@@ -459,52 +459,52 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         settings.append(
             ExtraSettings.NestedSetting(
                 "generation_settings",
-                "Generation Settings",
-                "Configure image generation parameters",
+                _("Generation Settings"),
+                _("Configure image generation parameters"),
                 [
                     ExtraSettings.SpinSetting(
-                        "width", "Width", "Image width in pixels",
+                        "width", _("Width"), _("Image width in pixels"),
                         512, 64, 2048, 8, 64, 0,
                     ),
                     ExtraSettings.SpinSetting(
-                        "height", "Height", "Image height in pixels",
+                        "height", _("Height"), _("Image height in pixels"),
                         512, 64, 2048, 8, 64, 0,
                     ),
                     ExtraSettings.SpinSetting(
-                        "steps", "Steps", "Number of sampling steps",
+                        "steps", _("Steps"), _("Number of sampling steps"),
                         20, 1, 150, 1, 10, 0,
                     ),
                     ExtraSettings.EntrySetting(
-                        "cfg_scale", "CFG Scale", "Unconditional guidance scale",
+                        "cfg_scale", _("CFG Scale"), _("Unconditional guidance scale"),
                         "7.0",
                     ),
                     ExtraSettings.EntrySetting(
-                        "seed", "Seed", "RNG seed (-1 for random)",
+                        "seed", _("Seed"), _("RNG seed (-1 for random)"),
                         "-1",
                     ),
                     ExtraSettings.ComboSetting(
                         "sampling_method",
-                        "Sampling Method",
-                        "Sampler to use for generation",
+                        _("Sampling Method"),
+                        _("Sampler to use for generation"),
                         ["euler", "euler_a", "heun", "dpm2", "dpm++2m", "dpm++2mv2", "lcm"],
                         "euler_a",
                     ),
                     ExtraSettings.MultilineEntrySetting(
                         "positive_prompt_template",
-                        "Positive Prompt Template",
-                        "Template for positive prompt. [input] will be replaced with the user prompt.",
+                        _("Positive Prompt Template"),
+                        _("Template for positive prompt. [input] will be replaced with the user prompt."),
                         "[input]",
                     ),
                     ExtraSettings.MultilineEntrySetting(
                         "negative_prompt_template",
-                        "Negative Prompt Template",
-                        "Template for negative prompt. [input] will be replaced with the positive prompt.",
+                        _("Negative Prompt Template"),
+                        _("Template for negative prompt. [input] will be replaced with the positive prompt."),
                         "",
                     ),
                     ExtraSettings.SpinSetting(
                         "clip_skip",
-                        "CLIP Skip",
-                        "Ignore last layers of CLIP network; 1 ignores none, 2 ignores one layer. <= 0 uses model default (1 for SD1.x, 2 for SD2.x)",
+                        _("CLIP Skip"),
+                        _("Ignore last layers of CLIP network; 1 ignores none, 2 ignores one layer. <= 0 uses model default (1 for SD1.x, 2 for SD2.x)"),
                         -1, -1, 12, 1, 1, 0,
                     ),
                 ],
@@ -515,20 +515,20 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         settings.append(
             ExtraSettings.NestedSetting(
                 "lora_settings",
-                "LoRA Settings",
-                "Configure LoRA adapters. Place LoRA files in the folder below and reference them in your prompt with <lora:filename:multiplier>.",
+                _("LoRA Settings"),
+                _("Configure LoRA adapters. Place LoRA files in the folder below and reference them in your prompt with <lora:filename:multiplier>."),
                 [
                     ExtraSettings.ToggleSetting(
                         "enable_lora",
-                        "Enable LoRA",
-                        "Enable LoRA support by passing --lora-model-dir to sd-cli/sd-server",
+                        _("Enable LoRA"),
+                        _("Enable LoRA support by passing --lora-model-dir to sd-cli/sd-server"),
                         False,
                         folder=self.lora_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "lora_folder_path",
-                        "LoRA Folder",
-                        "Directory containing LoRA weights (.safetensors, .ckpt)",
+                        _("LoRA Folder"),
+                        _("Directory containing LoRA weights (.safetensors, .ckpt)"),
                         "",
                         update_settings=True,
                     ),
@@ -544,8 +544,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         settings.append(
             ExtraSettings.ToggleSetting(
                 "enable_image_editing",
-                "Enable Image Editing",
-                "Enable the Qwen Image Edit model and the edit_image tool. Requires a downloaded Qwen Image Edit variant from the Model Library (and, for the 2509 variant, a vision projector file).",
+                _("Enable Image Editing"),
+                _("Enable the Qwen Image Edit model and the edit_image tool. Requires a downloaded Qwen Image Edit variant from the Model Library (and, for the 2509 variant, a vision projector file)."),
                 False,
                 update_settings=True,
             )
@@ -555,13 +555,13 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             settings.append(
                 ExtraSettings.NestedSetting(
                     "image_editing_settings",
-                    "Image Editing Settings",
-                    "Configure the Qwen Image Edit model, its text encoders and editing-specific overrides.",
+                    _("Image Editing Settings"),
+                    _("Configure the Qwen Image Edit model, its text encoders and editing-specific overrides."),
                     [
                         ExtraSettings.ComboSetting(
                             "edit_model",
-                            "Edit Model",
-                            "Stable Diffusion model to use for image editing. Pick a downloaded Qwen Image Edit variant or a custom file.",
+                            _("Edit Model"),
+                            _("Stable Diffusion model to use for image editing. Pick a downloaded Qwen Image Edit variant or a custom file."),
                             edit_model_list,
                             edit_model_list[0][1] if len(edit_model_list) > 0 else "",
                             folder=self.model_folder,
@@ -569,35 +569,35 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                         ),
                         ExtraSettings.EntrySetting(
                             "edit_vae_path",
-                            "Edit VAE",
-                            "Path to the VAE used by Qwen Image Edit (--vae). Leave empty to use the model default or the variant manifest.",
+                            _("Edit VAE"),
+                            _("Path to the VAE used by Qwen Image Edit (--vae). Leave empty to use the model default or the variant manifest."),
                             "",
                             folder=self.model_folder,
                         ),
                         ExtraSettings.EntrySetting(
                             "edit_llm_path",
-                            "Edit LLM (Qwen 2.5 VL)",
-                            "Path to the LLM text encoder (--llm) used by the Qwen Image Edit model.",
+                            _("Edit LLM (Qwen 2.5 VL)"),
+                            _("Path to the LLM text encoder (--llm) used by the Qwen Image Edit model."),
                             "",
                             folder=self.model_folder,
                         ),
                         ExtraSettings.EntrySetting(
                             "edit_llm_vision_path",
-                            "Edit LLM Vision Projector (2509 only)",
-                            "Path to the vision projector file (--llm_vision) used by the Qwen Image Edit 2509 variant.",
+                            _("Edit LLM Vision Projector (2509 only)"),
+                            _("Path to the vision projector file (--llm_vision) used by the Qwen Image Edit 2509 variant."),
                             "",
                             folder=self.model_folder,
                         ),
                         ExtraSettings.ToggleSetting(
                             "edit_qwen_image_zero_cond_t",
-                            "Edit: Qwen Image Zero Cond T (2511)",
-                            "Enable zero_cond_t for Qwen Image Edit (--qwen-image-zero-cond-t). Required for the 2511 variant for good results.",
+                            _("Edit: Qwen Image Zero Cond T (2511)"),
+                            _("Enable zero_cond_t for Qwen Image Edit (--qwen-image-zero-cond-t). Required for the 2511 variant for good results."),
                             False,
                         ),
                         ExtraSettings.MultilineEntrySetting(
                             "edit_extra_cli_args",
-                            "Edit Extra CLI Arguments",
-                            "Additional command-line arguments passed verbatim to sd-cli for image editing. One per line.",
+                            _("Edit Extra CLI Arguments"),
+                            _("Additional command-line arguments passed verbatim to sd-cli for image editing. One per line."),
                             "",
                         ),
                     ],
@@ -608,123 +608,123 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         settings.append(
             ExtraSettings.NestedSetting(
                 "advanced_settings",
-                "Advanced Settings",
-                "Override VAE, LLM and text encoder paths and tune low-VRAM / model-specific CLI flags.",
+                _("Advanced Settings"),
+                _("Override VAE, LLM and text encoder paths and tune low-VRAM / model-specific CLI flags."),
                 [
                     ExtraSettings.EntrySetting(
                         "vae_path",
-                        "VAE",
-                        "Path to standalone VAE model (overrides --vae). Leave empty to use the model default or the variant manifest.",
+                        _("VAE"),
+                        _("Path to standalone VAE model (overrides --vae). Leave empty to use the model default or the variant manifest."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "llm_path",
-                        "LLM (Qwen / Mistral / Gemma / Ovis)",
-                        "Path to the LLM text encoder (--llm) used by Qwen Image, FLUX.2, Z-Image, LTX-2, Ovis, Anima.",
+                        _("LLM (Qwen / Mistral / Gemma / Ovis)"),
+                        _("Path to the LLM text encoder (--llm) used by Qwen Image, FLUX.2, Z-Image, LTX-2, Ovis, Anima."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "clip_l_path",
-                        "CLIP-L",
-                        "Path to the CLIP-L text encoder (--clip_l) used by SD3.5, FLUX.1, Kontext.",
+                        _("CLIP-L"),
+                        _("Path to the CLIP-L text encoder (--clip_l) used by SD3.5, FLUX.1, Kontext."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "clip_g_path",
-                        "CLIP-G",
-                        "Path to the CLIP-G text encoder (--clip_g) used by SD3.5.",
+                        _("CLIP-G"),
+                        _("Path to the CLIP-G text encoder (--clip_g) used by SD3.5."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "t5xxl_path",
-                        "T5XXL",
-                        "Path to the T5XXL text encoder (--t5xxl) used by FLUX.1, Kontext, Chroma, SD3.5.",
+                        _("T5XXL"),
+                        _("Path to the T5XXL text encoder (--t5xxl) used by FLUX.1, Kontext, Chroma, SD3.5."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "video_vae_path",
-                        "Video VAE",
-                        "Path to the video VAE (used as --vae for LTX-2).",
+                        _("Video VAE"),
+                        _("Path to the video VAE (used as --vae for LTX-2)."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "audio_vae_path",
-                        "Audio VAE",
-                        "Path to the audio VAE (--audio-vae) used by LTX-2.",
+                        _("Audio VAE"),
+                        _("Path to the audio VAE (--audio-vae) used by LTX-2."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.EntrySetting(
                         "embeddings_connectors_path",
-                        "Embeddings Connectors",
-                        "Path to the embeddings connectors safetensors (--embeddings-connectors) used by LTX-2.",
+                        _("Embeddings Connectors"),
+                        _("Path to the embeddings connectors safetensors (--embeddings-connectors) used by LTX-2."),
                         "",
                         folder=self.model_folder,
                     ),
                     ExtraSettings.ToggleSetting(
                         "offload_to_cpu",
-                        "Offload to CPU",
-                        "Place weights in RAM and load them into VRAM on demand (--offload-to-cpu).",
+                        _("Offload to CPU"),
+                        _("Place weights in RAM and load them into VRAM on demand (--offload-to-cpu)."),
                         False,
                     ),
                     ExtraSettings.ToggleSetting(
                         "diffusion_fa",
-                        "Diffusion Flash Attention",
-                        "Use flash attention in the diffusion model (--diffusion-fa).",
+                        _("Diffusion Flash Attention"),
+                        _("Use flash attention in the diffusion model (--diffusion-fa)."),
                         False,
                     ),
                     ExtraSettings.ToggleSetting(
                         "vae_tiling",
-                        "VAE Tiling",
-                        "Process VAE in tiles to reduce memory usage (--vae-tiling).",
+                        _("VAE Tiling"),
+                        _("Process VAE in tiles to reduce memory usage (--vae-tiling)."),
                         False,
                     ),
                     ExtraSettings.ToggleSetting(
                         "clip_on_cpu",
-                        "Keep CLIP on CPU",
-                        "Keep CLIP text encoders in CPU memory (--clip-on-cpu).",
+                        _("Keep CLIP on CPU"),
+                        _("Keep CLIP text encoders in CPU memory (--clip-on-cpu)."),
                         False,
                     ),
                     ExtraSettings.ToggleSetting(
                         "vae_on_cpu",
-                        "Keep VAE on CPU",
-                        "Keep VAE in CPU memory (--vae-on-cpu).",
+                        _("Keep VAE on CPU"),
+                        _("Keep VAE in CPU memory (--vae-on-cpu)."),
                         False,
                     ),
                     ExtraSettings.ToggleSetting(
                         "chroma_disable_dit_mask",
-                        "Chroma: Disable DiT Mask",
-                        "Disable DiT mask for Chroma (--chroma-disable-dit-mask).",
+                        _("Chroma: Disable DiT Mask"),
+                        _("Disable DiT mask for Chroma (--chroma-disable-dit-mask)."),
                         False,
                     ),
                     ExtraSettings.ToggleSetting(
                         "chroma_enable_t5_mask",
-                        "Chroma: Enable T5 Mask",
-                        "Enable T5 mask for Chroma (--chroma-enable-t5-mask).",
+                        _("Chroma: Enable T5 Mask"),
+                        _("Enable T5 mask for Chroma (--chroma-enable-t5-mask)."),
                         False,
                     ),
                     ExtraSettings.ToggleSetting(
                         "qwen_image_zero_cond_t",
-                        "Qwen Image: Zero Cond T",
-                        "Enable zero_cond_t for Qwen Image (--qwen-image-zero-cond-t).",
+                        _("Qwen Image: Zero Cond T"),
+                        _("Enable zero_cond_t for Qwen Image (--qwen-image-zero-cond-t)."),
                         False,
                     ),
                     ExtraSettings.ScaleSetting(
                         "flow_shift",
-                        "Flow Shift",
-                        "Shift value for Flow models (e.g. 3 for Qwen Image). 0 = auto.",
+                        _("Flow Shift"),
+                        _("Shift value for Flow models (e.g. 3 for Qwen Image). 0 = auto."),
                         0.0, 0.0, 10.0, 2,
                     ),
                     ExtraSettings.ComboSetting(
                         "prediction",
-                        "Prediction Type",
-                        "Override the model's prediction type (--prediction).",
+                        _("Prediction Type"),
+                        _("Override the model's prediction type (--prediction)."),
                         ["auto", "eps", "v", "edm_v", "sd3_flow", "flux_flow", "flux2_flow"],
                         "auto",
                     ),
@@ -757,22 +757,22 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                     ),
                     ExtraSettings.ComboSetting(
                         "cache_mode",
-                        "Cache Mode",
-                        "Caching method for faster inference (--cache-mode).",
+                        _("Cache Mode"),
+                        _("Caching method for faster inference (--cache-mode)."),
                         ["none", "easycache", "ucache", "dbcache", "spectrum"],
                         "none",
                     ),
                     ExtraSettings.ComboSetting(
                         "rng",
-                        "RNG",
-                        "Random number generator backend (--rng). 'cuda' matches A1111, 'cpu' matches ComfyUI.",
+                        _("RNG"),
+                        _("Random number generator backend (--rng). 'cuda' matches A1111, 'cpu' matches ComfyUI."),
                         ["cuda", "cpu", "std_default"],
                         "cuda",
                     ),
                     ExtraSettings.MultilineEntrySetting(
                         "extra_cli_args",
-                        "Extra CLI Arguments",
-                        "Additional command-line arguments passed verbatim to sd-cli / sd-server. One per line, e.g. '--vae-tile-size 64x64'.",
+                        _("Extra CLI Arguments"),
+                        _("Additional command-line arguments passed verbatim to sd-cli / sd-server. One per line, e.g. '--vae-tile-size 64x64'."),
                         "",
                     ),
                 ],

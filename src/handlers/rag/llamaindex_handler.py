@@ -37,30 +37,30 @@ class LlamaIndexHanlder(RAGHandler):
     
     def get_extra_settings(self) -> list:
         r = [
-            ExtraSettings.ScaleSetting("chunk_size", "Chunk Size", "Split text in chunks of the given size (in tokens). Requires a reindex", 512, 64, 2048, 0), 
-            ExtraSettings.ButtonSetting("update_index", "Update Index", "Update the index with new/modified files instead of reindexing everything", self.update_index_button_pressed, label="Update"),
-            ExtraSettings.ScaleSetting("return_documents", "Documents to return", "Maximum number of documents to return", 3,1,20, 0), 
-            ExtraSettings.ScaleSetting("similarity_threshold", "Similarity of the document to be returned", "Set the percentage similarity of a document to get returned", 0.1,0,1, 2), 
-            ExtraSettings.ScaleSetting("oversample_factor", "Oversample Factor", "Factor to multiply the documents to return before filtering with Otsu's thresholding", 2.0, 1.0, 10.0, 1, update_settings=True),
-            ExtraSettings.ScaleSetting("message_context", "Context Messages", "Number of previous messages to consider for retrieval", 5, 0, 20, 0),
-            ExtraSettings.ToggleSetting("use_llm", "Secondary LLM", "Use the secondary LLM to improve retrivial", False),
-            ExtraSettings.ToggleSetting("subdirectory_on", "Index Only a subdirectory", "Choose only a subdirectory to index. If you already have indexed it, you don't need to re-index", False, update_settings=True),
-            ExtraSettings.ToggleSetting("use_bm25", "Use BM25", "Enable hybrid search with BM25", True),
+            ExtraSettings.ScaleSetting("chunk_size", _("Chunk Size"), _("Split text in chunks of the given size (in tokens). Requires a reindex"), 512, 64, 2048, 0), 
+            ExtraSettings.ButtonSetting("update_index", _("Update Index"), _("Update the index with new/modified files instead of reindexing everything"), self.update_index_button_pressed, label=_("Update")),
+            ExtraSettings.ScaleSetting("return_documents", _("Documents to return"), _("Maximum number of documents to return"), 3,1,20, 0), 
+            ExtraSettings.ScaleSetting("similarity_threshold", _("Similarity of the document to be returned"), _("Set the percentage similarity of a document to get returned"), 0.1,0,1, 2), 
+            ExtraSettings.ScaleSetting("oversample_factor", _("Oversample Factor"), _("Factor to multiply the documents to return before filtering with Otsu's thresholding"), 2.0, 1.0, 10.0, 1, update_settings=True),
+            ExtraSettings.ScaleSetting("message_context", _("Context Messages"), _("Number of previous messages to consider for retrieval"), 5, 0, 20, 0),
+            ExtraSettings.ToggleSetting("use_llm", _("Secondary LLM"), _("Use the secondary LLM to improve retrivial"), False),
+            ExtraSettings.ToggleSetting("subdirectory_on", _("Index Only a subdirectory"), _("Choose only a subdirectory to index. If you already have indexed it, you don't need to re-index"), False, update_settings=True),
+            ExtraSettings.ToggleSetting("use_bm25", _("Use BM25"), _("Enable hybrid search with BM25"), True),
         ]
         if self.get_setting("subdirectory_on", False, False):
             r += [
-                ExtraSettings.ComboSetting("subdirectory", "Subdirectory", "Subdirectory to index", self.get_subdirectories(), self.get_subdirectories()[0][1] if len(self.get_subdirectories()) > 0 else ".", update_settings=True)
+                ExtraSettings.ComboSetting("subdirectory", _("Subdirectory"), _("Subdirectory to index"), self.get_subdirectories(), self.get_subdirectories()[0][1] if len(self.get_subdirectories()) > 0 else ".", update_settings=True)
             ]
 
         r += [ 
-            ExtraSettings.NestedSetting("documents", "Document extensions", "List of document extensions to index", 
+            ExtraSettings.NestedSetting("documents", _("Document extensions"), _("List of document extensions to index"), 
                 [
-                    ExtraSettings.ToggleSetting("md", "Markdown", ".md files", True),
-                    ExtraSettings.ToggleSetting("txt", "TXT", ".txt files", True),
-                    ExtraSettings.ToggleSetting("pdf", "PDF", ".pdf files", True),
-                    ExtraSettings.ToggleSetting("docx", "Docx", ".docx files", True),
-                    ExtraSettings.ToggleSetting("epub", "Epub", ".epub files", True),
-                    ExtraSettings.ToggleSetting("csv", "CSV", ".csv files", True),
+                    ExtraSettings.ToggleSetting("md", _("Markdown"), _(".md files"), True),
+                    ExtraSettings.ToggleSetting("txt", _("TXT"), _(".txt files"), True),
+                    ExtraSettings.ToggleSetting("pdf", _("PDF"), _(".pdf files"), True),
+                    ExtraSettings.ToggleSetting("docx", _("Docx"), _(".docx files"), True),
+                    ExtraSettings.ToggleSetting("epub", _("Epub"), _(".epub files"), True),
+                    ExtraSettings.ToggleSetting("csv", _("CSV"), _(".csv files"), True),
                 ]
             )
         ]

@@ -287,7 +287,7 @@ class OllamaHandler(LLMHandler):
                     _("Open model library"),
                     _("Open the model library to download or remove models"),
                     self.open_library,
-                    label="Open Library"
+                    label=_("Open Library")
                 )
             )
         settings += [

@@ -7,11 +7,11 @@ class SearXNGHandler(WebSearchHandler):
 
     def get_extra_settings(self) -> list:
         return [
-            ExtraSettings.EntrySetting("endpoint", "SearXNG Instance", "URL of the instance of SearXNG to query.\nIt is strongly suggested to selfhost your own instance with json mode enabled", "https://search.nyarchlinux.moe"),
-            ExtraSettings.EntrySetting("lang", "Language", "Language for the search results", "en"),
-            ExtraSettings.ScaleSetting("results", "Results", "Number of results to consider", 2, 1, 10, 0),
-            ExtraSettings.ToggleSetting("scrape", "Instance scraping", "Scrape SearXNG instance if JSON format is not enabled", True),
-            ExtraSettings.ToggleSetting("streaming", "Show search progress", "Show search progress", True)
+            ExtraSettings.EntrySetting("endpoint", _("SearXNG Instance"), _("URL of the instance of SearXNG to query.\nIt is strongly suggested to selfhost your own instance with json mode enabled"), "https://search.nyarchlinux.moe"),
+            ExtraSettings.EntrySetting("lang", _("Language"), _("Language for the search results"), "en"),
+            ExtraSettings.ScaleSetting("results", _("Results"), _("Number of results to consider"), 2, 1, 10, 0),
+            ExtraSettings.ToggleSetting("scrape", _("Instance scraping"), _("Scrape SearXNG instance if JSON format is not enabled"), True),
+            ExtraSettings.ToggleSetting("streaming", _("Show search progress"), _("Show search progress"), True)
         ]
 
     def supports_streaming_query(self) -> bool:

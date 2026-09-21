@@ -189,18 +189,18 @@ class LlamaCPPHandler(OpenAIHandler):
         custom_model_list = self.get_custom_model_list()
         mmproj_list = self.get_mmproj_list()
         settings =  [
-                ExtraSettings.ComboSetting("model", "Model", "Model to use", self.get_custom_model_list(), 
+                ExtraSettings.ComboSetting("model", _("Model"), _("Model to use"), self.get_custom_model_list(), 
                 custom_model_list[0][1] if len(custom_model_list) > 0 else "", 
                 refresh=lambda button: self.get_custom_model_list(True),
                 folder=self.model_folder),
             ]
         settings.extend(
             [
-                ExtraSettings.ButtonSetting("library", "Model Library", "Open the model library", self.open_model_library, label="Model Library"),
-                ExtraSettings.ToggleSetting("enable_mmproj", "Enable Vision (MMProj)", "Enable vision support using mmproj file", False, update_settings=True),
+                ExtraSettings.ButtonSetting("library", _("Model Library"), _("Open the model library"), self.open_model_library, label=_("Model Library")),
+                ExtraSettings.ToggleSetting("enable_mmproj", _("Enable Vision (MMProj)"), _("Enable vision support using mmproj file"), False, update_settings=True),
             ]
         )
-        settings += [ExtraSettings.ComboSetting("mmproj", "MMProj (Vision)", "Multimodal projection file for vision support", 
+        settings += [ExtraSettings.ComboSetting("mmproj", _("MMProj (Vision)"), _("Multimodal projection file for vision support"), 
                 mmproj_list,
                 mmproj_list[0][1] if len(mmproj_list) > 0 else "",
                 refresh=lambda button: self.get_mmproj_list(True),
@@ -209,8 +209,8 @@ class LlamaCPPHandler(OpenAIHandler):
         settings.append(
             ExtraSettings.EntrySetting(
                 "custom_models_dir",
-                "Custom Models Directory",
-                "Additional directory to scan for .gguf model files (leave empty to disable)",
+                _("Custom Models Directory"),
+                _("Additional directory to scan for .gguf model files (leave empty to disable)"),
                 "",
             )
         )
@@ -218,30 +218,30 @@ class LlamaCPPHandler(OpenAIHandler):
         settings.append(
             ExtraSettings.MultilineEntrySetting(
                 "custom_args",
-                "Custom Arguments",
-                "Additional command-line arguments passed to llama-server (e.g. --threads 4 --no-mmap). Leave empty for none.",
+                _("Custom Arguments"),
+                _("Additional command-line arguments passed to llama-server (e.g. --threads 4 --no-mmap). Leave empty for none."),
                 "",
             )
         )
 
         if not self.is_gpu_installed():
             settings.append(
-                ExtraSettings.ButtonSetting("install", "Install LlamaCPP (Hardware Acceleration)", "Build llama.cpp with hardware acceleration", self.show_install_dialog, label="Install")
+                ExtraSettings.ButtonSetting("install", _("Install LlamaCPP (Hardware Acceleration)"), _("Build llama.cpp with hardware acceleration"), self.show_install_dialog, label=_("Install"))
             )
         else:
             settings.extend([
-                ExtraSettings.ToggleSetting("gpu_acceleration", "Hardware Acceleration", "Enable hardware acceleration", False),
+                ExtraSettings.ToggleSetting("gpu_acceleration", _("Hardware Acceleration"), _("Enable hardware acceleration"), False),
             ])
             if is_flatpak():
                 settings.append(
-                    ExtraSettings.ToggleSetting("use_system_server", "Use System llama-server", "Use system-installed llama-server instead of built-in (requires llama-server on host and sandbox escape)", False)
+                    ExtraSettings.ToggleSetting("use_system_server", _("Use System llama-server"), _("Use system-installed llama-server instead of built-in (requires llama-server on host and sandbox escape)"), False)
                 )
             settings.append(
-                ExtraSettings.ButtonSetting("reinstall", "Reinstall", "Rebuild llama.cpp", self.show_install_dialog, label="Reinstall")
+                ExtraSettings.ButtonSetting("reinstall", _("Reinstall"), _("Rebuild llama.cpp"), self.show_install_dialog, label=_("Reinstall"))
             )
         extra_settings = self.build_extra_settings("LlamaCPP", False, True, False, True, False, None, None, False, False, True)
         extra_settings.extend([
-            ExtraSettings.SpinSetting("ctx", "Context Size", "Context size to use, 0 = load from model", default=0, min=0, max=1200000, page=1024, step=512),
+            ExtraSettings.SpinSetting("ctx", _("Context Size"), _("Context size to use, 0 = load from model"), default=0, min=0, max=1200000, page=1024, step=512),
         ])
         settings.extend(extra_settings)
         return settings

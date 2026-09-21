@@ -29,7 +29,7 @@ class MemoripyHandler(MemoryHandler):
 
     def get_extra_settings(self) -> list:
         return [
-            ExtraSettings.ButtonSetting("reset_memory", "Reset Memory", "Reset the memory", lambda x: self.reset_memory(), "Reset Memory"),
+            ExtraSettings.ButtonSetting("reset_memory", _("Reset Memory"), _("Reset the memory"), lambda x: self.reset_memory(), "Reset Memory"),
         ]
     def reset_memory(self):
         storage = os.path.join(self.path, "memory2.json")
