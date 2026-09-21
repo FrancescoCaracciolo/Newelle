@@ -297,7 +297,206 @@ SD_MODELS = [
         ],
         "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
     },
+    {
+        "id": "qwen-image-2.1-q4_k",
+        "family": "qwen_image_2.1",
+        "display": "Qwen Image 2.1 Q4_K",
+        "description": "Qwen Image 2.1 with Qwen3-VL-8B. ~4.2 GB diffusion, ~5 GB LLM, dedicated 2.1 VAE (not interchangeable with Qwen Image 1.x).",
+        "tags": ["qwen", "qwen-image-2.1", "text2image", "gguf", "q4_k", "10GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/Qwen-Image-2.1-GGUF/resolve/main/qwen_image_2.1-Q4_K.gguf", "filename": "qwen_image_2.1-Q4_K.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", "filename": "qwen_image_2.1_vae_bf16.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/Qwen3VL-8B-Instruct-Q4_K_M.gguf", "filename": "Qwen3VL-8B-Instruct-Q4_K_M.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "qwen-image-2.1-edit-q4_k",
+        "family": "qwen_image_2.1_edit",
+        "display": "Qwen Image 2.1 Edit Q4_K",
+        "description": "Qwen Image 2.1 instruction editing. Same diffusion and VAE as 2.1 t2i, plus a Qwen3-VL-8B vision projector (--llm_vision).",
+        "tags": ["qwen", "qwen-image-2.1", "image-edit", "gguf", "q4_k", "11GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/leejet/Qwen-Image-2.1-GGUF/resolve/main/qwen_image_2.1-Q4_K.gguf", "filename": "qwen_image_2.1-Q4_K.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", "filename": "qwen_image_2.1_vae_bf16.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/Qwen3VL-8B-Instruct-Q4_K_M.gguf", "filename": "Qwen3VL-8B-Instruct-Q4_K_M.gguf", "shared": True},
+            {"role": "llm_vision", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf", "filename": "mmproj-Qwen3VL-8B-Instruct-F16.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "z-image-q4_k_m",
+        "family": "z_image",
+        "display": "Z-Image Base Q4_K_M",
+        "description": "Full (non-turbo) Z-Image with Qwen3-4B. ~5.1 GB diffusion, ~2.5 GB LLM. Use CFG ~5; Turbo remains the faster 8-step option.",
+        "tags": ["z-image", "text2image", "gguf", "q4_k_m", "8GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/unsloth/Z-Image-GGUF/resolve/main/z-image-Q4_K_M.gguf", "filename": "z-image-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-schnell/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "chroma1-radiance-v04-q8_0",
+        "family": "chroma_radiance",
+        "display": "Chroma1-Radiance v0.4 Q8_0",
+        "description": "Pixel-space Chroma1-Radiance v0.4. ~10.4 GB diffusion plus T5XXL. No separate VAE.",
+        "tags": ["chroma", "radiance", "text2image", "gguf", "q8_0", "20GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/silveroxides/Chroma1-Radiance-GGUF/resolve/main/Chroma1-Radiance-v0.4/Chroma1-Radiance-v0.4-Q8_0.gguf", "filename": "Chroma1-Radiance-v0.4-Q8_0.gguf", "shared": False},
+            {"role": "t5xxl", "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors", "filename": "t5xxl_fp16.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--clip-on-cpu"],
+    },
+    {
+        "id": "krea2-turbo-q4_k_m",
+        "family": "krea2",
+        "display": "Krea2 Turbo Q4_K_M",
+        "description": "Krea2 Turbo with Wan 2.1 VAE and Qwen3-VL-4B. ~7.2 GB diffusion, ~2.5 GB LLM.",
+        "tags": ["krea2", "turbo", "text2image", "gguf", "q4_k_m", "10GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/realrebelai/KREA-2_GGUFs/resolve/main/TURBO/Krea-2-Turbo-Q4_K_M.gguf", "filename": "Krea-2-Turbo-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors", "filename": "wan_2.1_vae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3VL-4B-Instruct-Q4_K_M.gguf", "filename": "Qwen3VL-4B-Instruct-Q4_K_M.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "ernie-image-turbo-q4_k_m",
+        "family": "ernie_image",
+        "display": "ERNIE-Image Turbo Q4_K_M",
+        "description": "ERNIE-Image Turbo with Flux.2 VAE and Ministral-3 3B. ~5 GB diffusion, ~2.2 GB LLM. Fits on 8 GB VRAM with offload.",
+        "tags": ["ernie", "turbo", "text2image", "gguf", "q4_k_m", "8GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/unsloth/ERNIE-Image-Turbo-GGUF/resolve/main/ernie-image-turbo-Q4_K_M.gguf", "filename": "ernie-image-turbo-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/Comfy-Org/flux2-klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors", "filename": "flux2_ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/unsloth/Ministral-3-3B-Instruct-2512-GGUF/resolve/main/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf", "filename": "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf", "shared": False},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "longcat-image-q4_k_m",
+        "family": "longcat",
+        "display": "LongCat Image Q4_K_M",
+        "description": "LongCat-Image with Flux VAE and Qwen2.5-VL-7B. ~3.7 GB diffusion. Put target text in quotes for character-level rendering.",
+        "tags": ["longcat", "text2image", "gguf", "q4_k_m", "12GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/vantagewithai/LongCat-Image-GGUF/resolve/main/comfy/LongCat-Image-Q4_K_M.gguf", "filename": "LongCat-Image-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.Q8_0.gguf", "filename": "Qwen2.5-VL-7B-Instruct.Q8_0.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--flow-shift", "3"],
+    },
+    {
+        "id": "longcat-image-edit-q4_k_m",
+        "family": "longcat_edit",
+        "display": "LongCat Image Edit Q4_K_M",
+        "description": "LongCat-Image-Edit. Same VAE/LLM as LongCat t2i, plus a Qwen2.5-VL vision projector.",
+        "tags": ["longcat", "image-edit", "gguf", "q4_k_m", "13GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/vantagewithai/LongCat-Image-Edit-GGUF/resolve/main/LongCat-Image-Edit-Q4_K_M.gguf", "filename": "LongCat-Image-Edit-Q4_K_M.gguf", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.Q8_0.gguf", "filename": "Qwen2.5-VL-7B-Instruct.Q8_0.gguf", "shared": True},
+            {"role": "llm_vision", "url": "https://huggingface.co/mradermacher/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct.mmproj-Q8_0.gguf", "filename": "Qwen2.5-VL-7B-Instruct.mmproj-Q8_0.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu", "--flow-shift", "3"],
+    },
+    {
+        "id": "minit2i-b16",
+        "family": "minit2i",
+        "display": "MiniT2I B-16",
+        "description": "Tiny MiniT2I transformer with Flan-T5-Large. Standalone safetensors, native 512x512. Very lightweight.",
+        "tags": ["minit2i", "text2image", "safetensors", "1GB"],
+        "load_mode": "diffusion_model",
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/MiniT2I/MiniT2I/resolve/main/minit2i-b-16/transformer/diffusion_pytorch_model.safetensors", "filename": "minit2i_b16.safetensors", "shared": False},
+            {"role": "t5xxl", "url": "https://huggingface.co/google/flan-t5-large/resolve/main/model.safetensors", "filename": "flan_t5_large.safetensors", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa"],
+    },
+    {
+        "id": "hidream-o1-image-dev-fp8",
+        "family": "hidream",
+        "display": "HiDream-O1-Image-Dev FP8",
+        "description": "Bundled HiDream-O1-Image-Dev FP8 checkpoint (~8 GB). Load with -m; no separate VAE or text encoder.",
+        "tags": ["hidream", "text2image", "safetensors", "fp8", "8GB"],
+        "load_mode": "model",
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/Comfy-Org/HiDream-O1-Image/resolve/main/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors", "filename": "hidream_o1_image_dev_fp8_scaled.safetensors", "shared": False},
+        ],
+        "cli_extra": [],
+    },
+    {
+        "id": "boogu-image-turbo-fp8",
+        "family": "boogu",
+        "display": "Boogu Image Turbo FP8",
+        "description": "Boogu Image Turbo FP8 with Flux VAE and Qwen3-VL-8B. Standalone diffusion safetensors (~10.3 GB).",
+        "tags": ["boogu", "turbo", "text2image", "safetensors", "fp8", "16GB"],
+        "load_mode": "diffusion_model",
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/Comfy-Org/Boogu-Image/resolve/main/diffusion_models/boogu_image_turbo_fp8_scaled.safetensors", "filename": "boogu_image_turbo_fp8_scaled.safetensors", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/Qwen3VL-8B-Instruct-Q4_K_M.gguf", "filename": "Qwen3VL-8B-Instruct-Q4_K_M.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "boogu-image-edit-fp8",
+        "family": "boogu_edit",
+        "display": "Boogu Image Edit FP8",
+        "description": "Boogu Image Edit FP8. Requires a reference image and the Qwen3-VL-8B vision projector.",
+        "tags": ["boogu", "image-edit", "safetensors", "fp8", "17GB"],
+        "load_mode": "diffusion_model",
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/Comfy-Org/Boogu-Image/resolve/main/diffusion_models/boogu_image_edit_fp8_scaled.safetensors", "filename": "boogu_image_edit_fp8_scaled.safetensors", "shared": False},
+            {"role": "vae", "url": "https://code.ixdev.cn/hf-mirrors/FLUX.1-dev/-/raw/main/ae.safetensors", "filename": "ae.safetensors", "shared": True},
+            {"role": "llm", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/Qwen3VL-8B-Instruct-Q4_K_M.gguf", "filename": "Qwen3VL-8B-Instruct-Q4_K_M.gguf", "shared": True},
+            {"role": "llm_vision", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf", "filename": "mmproj-Qwen3VL-8B-Instruct-F16.gguf", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "llada-image-turbo-q8_0",
+        "family": "llada_image",
+        "display": "LLaDA-Image-Turbo Q8_0",
+        "description": "LLaDA-Image-Turbo 4-step model. ~7 GB diffusion, ~9.7 GB text encoder, Flux.2-style VAE, connectors and an external tokenizer.json.",
+        "tags": ["llada", "turbo", "text2image", "gguf", "q8_0", "18GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/fszontagh/LLaDA-Image-Turbo-GGUF/resolve/main/llada-image-turbo-q8_0.gguf", "filename": "llada-image-turbo-q8_0.gguf", "shared": False},
+            {"role": "llm", "url": "https://huggingface.co/fszontagh/LLaDA-Image-Turbo-GGUF/resolve/main/llada-image-turbo-text_encoder-q4_K.gguf", "filename": "llada-image-turbo-text_encoder-q4_K.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/inclusionAI/LLaDA-Image-Turbo/resolve/main/vae/diffusion_pytorch_model.safetensors", "filename": "llada_vae.safetensors", "shared": True},
+            {"role": "embeddings", "url": "https://huggingface.co/fszontagh/LLaDA-Image-Turbo-GGUF/resolve/main/llada-image-turbo-connectors.safetensors", "filename": "llada-image-turbo-connectors.safetensors", "shared": False},
+            {"role": "tokenizer", "url": "https://huggingface.co/inclusionAI/LLaDA-Image-Turbo/resolve/main/tokenizer/tokenizer.json", "filename": "tokenizer_llada.json", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
+    {
+        "id": "llada-image-turbo-edit-q8_0",
+        "family": "llada_image_edit",
+        "display": "LLaDA-Image-Turbo Edit Q8_0",
+        "description": "LLaDA-Image-Turbo editing. Same transformer/LLM/VAE as Turbo t2i, but uses the SigVQ edit connectors.",
+        "tags": ["llada", "turbo", "image-edit", "gguf", "q8_0", "20GB"],
+        "files": [
+            {"role": "diffusion", "url": "https://huggingface.co/fszontagh/LLaDA-Image-Turbo-GGUF/resolve/main/llada-image-turbo-q8_0.gguf", "filename": "llada-image-turbo-q8_0.gguf", "shared": False},
+            {"role": "llm", "url": "https://huggingface.co/fszontagh/LLaDA-Image-Turbo-GGUF/resolve/main/llada-image-turbo-text_encoder-q4_K.gguf", "filename": "llada-image-turbo-text_encoder-q4_K.gguf", "shared": False},
+            {"role": "vae", "url": "https://huggingface.co/inclusionAI/LLaDA-Image-Turbo/resolve/main/vae/diffusion_pytorch_model.safetensors", "filename": "llada_vae.safetensors", "shared": True},
+            {"role": "embeddings", "url": "https://huggingface.co/fszontagh/LLaDA-Image-Turbo-GGUF/resolve/main/llada-image-turbo-connectors-edit.safetensors", "filename": "llada-image-turbo-connectors-edit.safetensors", "shared": False},
+            {"role": "tokenizer", "url": "https://huggingface.co/inclusionAI/LLaDA-Image-Turbo/resolve/main/tokenizer/tokenizer.json", "filename": "tokenizer_llada.json", "shared": True},
+        ],
+        "cli_extra": ["--diffusion-fa", "--offload-to-cpu"],
+    },
 ]
+
+# Families shown in the image-editing model picker.
+SD_EDIT_FAMILIES = (
+    "qwen_image_edit",
+    "qwen_image_2.1_edit",
+    "longcat_edit",
+    "boogu_edit",
+    "llada_image_edit",
+    "kontext",
+)
 
 
 class StableDiffusionCPPHandler(ImageGeneratorHandler):
@@ -382,7 +581,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             ExtraSettings.ButtonSetting(
                 "library",
                 _("Model Library"),
-                _("Browse and download curated models (SD, SDXL, SD3, FLUX, Kontext, Chroma, Qwen, Z-Image, LTX-2, Ovis, Anima, ...)"),
+                _("Browse and download curated models (SD, SDXL, SD3, FLUX, Kontext, Chroma, Qwen, Qwen Image 2.1, Z-Image, Krea2, ERNIE, LongCat, MiniT2I, HiDream, Boogu, LLaDA, LTX-2, Ovis, Anima, ...)"),
                 self.open_model_library,
                 label=_("Model Library"),
             )
@@ -536,32 +735,32 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             )
         )
 
-        # Image editing (Qwen Image Edit). The toggle is always shown; the
-        # nested configuration only appears when the toggle is on, so we
-        # re-emit get_extra_settings() on toggle change (update_settings=True)
-        # and conditionally append the nested block.
+        # Image editing. The toggle is always shown; the nested configuration
+        # only appears when the toggle is on, so we re-emit get_extra_settings()
+        # on toggle change (update_settings=True) and conditionally append the
+        # nested block.
         self._sync_edit_settings_with_model()
         settings.append(
             ExtraSettings.ToggleSetting(
                 "enable_image_editing",
                 _("Enable Image Editing"),
-                _("Enable the Qwen Image Edit model and the edit_image tool. Requires a downloaded Qwen Image Edit variant from the Model Library (and, for the 2509 variant, a vision projector file)."),
+                _("Enable the edit_image tool. Requires a downloaded image-edit variant from the Model Library (Qwen Image Edit, Qwen Image 2.1 Edit, LongCat Edit, Boogu Edit, LLaDA Edit, or Kontext)."),
                 False,
                 update_settings=True,
             )
         )
         if self.get_setting("enable_image_editing", False, False):
-            edit_model_list = self._get_model_list(family="qwen_image_edit")
+            edit_model_list = self._get_model_list(family=SD_EDIT_FAMILIES)
             settings.append(
                 ExtraSettings.NestedSetting(
                     "image_editing_settings",
                     _("Image Editing Settings"),
-                    _("Configure the Qwen Image Edit model, its text encoders and editing-specific overrides."),
+                    _("Configure the image-edit model, its text encoders and editing-specific overrides."),
                     [
                         ExtraSettings.ComboSetting(
                             "edit_model",
                             _("Edit Model"),
-                            _("Stable Diffusion model to use for image editing. Pick a downloaded Qwen Image Edit variant or a custom file."),
+                            _("Stable Diffusion model to use for image editing. Pick a downloaded image-edit variant or a custom file."),
                             edit_model_list,
                             edit_model_list[0][1] if len(edit_model_list) > 0 else "",
                             folder=self.model_folder,
@@ -570,21 +769,21 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                         ExtraSettings.EntrySetting(
                             "edit_vae_path",
                             _("Edit VAE"),
-                            _("Path to the VAE used by Qwen Image Edit (--vae). Leave empty to use the model default or the variant manifest."),
+                            _("Path to the VAE used by the image-edit model (--vae). Leave empty to use the model default or the variant manifest."),
                             "",
                             folder=self.model_folder,
                         ),
                         ExtraSettings.EntrySetting(
                             "edit_llm_path",
-                            _("Edit LLM (Qwen 2.5 VL)"),
-                            _("Path to the LLM text encoder (--llm) used by the Qwen Image Edit model."),
+                            _("Edit LLM"),
+                            _("Path to the LLM text encoder (--llm) used by the image-edit model."),
                             "",
                             folder=self.model_folder,
                         ),
                         ExtraSettings.EntrySetting(
                             "edit_llm_vision_path",
-                            _("Edit LLM Vision Projector (2509 only)"),
-                            _("Path to the vision projector file (--llm_vision) used by the Qwen Image Edit 2509 variant."),
+                            _("Edit LLM Vision Projector"),
+                            _("Path to the vision projector file (--llm_vision) used by Qwen Image Edit 2509, Qwen Image 2.1 Edit, LongCat Edit and Boogu Edit."),
                             "",
                             folder=self.model_folder,
                         ),
@@ -621,7 +820,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                     ExtraSettings.EntrySetting(
                         "llm_path",
                         _("LLM (Qwen / Mistral / Gemma / Ovis)"),
-                        _("Path to the LLM text encoder (--llm) used by Qwen Image, FLUX.2, Z-Image, LTX-2, Ovis, Anima."),
+                        _("Path to the LLM text encoder (--llm) used by Qwen Image, FLUX.2, Z-Image, LTX-2, Ovis, Anima, Krea2, ERNIE, LongCat, Boogu, LLaDA."),
                         "",
                         folder=self.model_folder,
                     ),
@@ -642,7 +841,14 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                     ExtraSettings.EntrySetting(
                         "t5xxl_path",
                         _("T5XXL"),
-                        _("Path to the T5XXL text encoder (--t5xxl) used by FLUX.1, Kontext, Chroma, SD3.5."),
+                        _("Path to the T5XXL text encoder (--t5xxl) used by FLUX.1, Kontext, Chroma, SD3.5, MiniT2I."),
+                        "",
+                        folder=self.model_folder,
+                    ),
+                    ExtraSettings.EntrySetting(
+                        "tokenizer_path",
+                        _("Tokenizer JSON"),
+                        _("Path to an external Hugging Face tokenizer.json (--tokenizer) used by LLaDA-Image and similar models."),
                         "",
                         folder=self.model_folder,
                     ),
@@ -795,17 +1001,20 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         Args:
             update: If True, refresh the settings UI after collecting the list.
             family: If set, only include library variants whose ``family``
-                matches this string and only loose files with a matching
-                variant name. Used by the image-editing model picker to
-                restrict the list to ``qwen_image_edit`` variants.
+                matches this string (or one of the strings, if a sequence is
+                given). Used by the image-editing model picker to restrict the
+                list to edit families.
         """
         model_list = []
         seen = set()
+        family_filter = None
+        if family is not None:
+            family_filter = {family} if isinstance(family, str) else set(family)
 
         variant_owned_paths = self._variant_owned_paths()
 
         for entry in SD_MODELS:
-            if family is not None and entry.get("family") != family:
+            if family_filter is not None and entry.get("family") not in family_filter:
                 continue
             manifest_path = self._manifest_path(entry["id"])
             if os.path.exists(manifest_path):
@@ -910,6 +1119,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             "clip_l_path",
             "clip_g_path",
             "t5xxl_path",
+            "tokenizer_path",
             "audio_vae_path",
             "embeddings_connectors_path",
         ]
@@ -928,6 +1138,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 ("clip_l", "clip_l_path"),
                 ("clip_g", "clip_g_path"),
                 ("t5xxl", "t5xxl_path"),
+                ("tokenizer", "tokenizer_path"),
                 ("audio_vae", "audio_vae_path"),
                 ("embeddings", "embeddings_connectors_path"),
             ):
@@ -953,7 +1164,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         currently selected ``edit_model``.
 
         Mirrors :meth:`_sync_special_settings_with_model` for the edit
-        pipeline: when the user picks a ``qwen_image_edit`` library variant
+        pipeline: when the user picks an image-edit library variant
         the VAE / LLM / llm_vision paths and the ``--qwen-image-zero-cond-t``
         toggle are filled in from the variant manifest; when the user picks a
         custom (loose) file the previously synced values are cleared so they
@@ -1057,12 +1268,23 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
           files (typically GGUFs) whose tensors have no prefix.
 
         The ``model_load_mode`` setting can force either argument. In automatic
-        mode, pass ``--diffusion-model`` for ``.gguf`` files (so the prefix is
-        added) and ``-m`` for everything else (safetensors, torch checkpoints,
-        …). The explicit override is needed for standalone diffusion models
-        distributed as safetensors, such as Anima.
+        mode, a library variant's ``load_mode`` (or the matching installed
+        manifest) is used when present; otherwise pass ``--diffusion-model``
+        for ``.gguf`` files (so the prefix is added) and ``-m`` for everything
+        else (safetensors, torch checkpoints, …). The explicit override is
+        needed for standalone diffusion models distributed as safetensors,
+        such as Anima, MiniT2I and Boogu.
         """
         load_mode = self.get_setting("model_load_mode", False, "auto")
+        if load_mode == "auto":
+            variant = self._variant_for_model_path(model_path)
+            if variant is not None:
+                entry, manifest = variant
+                load_mode = (
+                    manifest.get("load_mode")
+                    or entry.get("load_mode")
+                    or "auto"
+                )
         if load_mode == "diffusion_model":
             return ["--diffusion-model", model_path]
         if load_mode == "model":
@@ -1116,16 +1338,22 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 variant. Used for variant-provided defaults.
             edit_mode: When True, the setting keys used for the encoder paths
                 and zero-cond-t flag are read from the ``edit_*`` settings
-                (used by the Qwen Image Edit pipeline), and ``--llm_vision``
+                (used by the image-edit pipeline), and ``--llm_vision``
                 is emitted when an ``llm_vision`` role is present in the
                 manifest or in the user settings.
         """
         args = []
 
-        def resolve_path(setting_key, manifest_role):
-            value = self.get_setting(setting_key, True, "") or ""
-            if value and os.path.exists(os.path.expanduser(value)):
-                return os.path.expanduser(value)
+        def resolve_path(setting_key, manifest_role, prefer_manifest=False):
+            if prefer_manifest and variant_manifest is not None:
+                files = variant_manifest.get("files", {}) or {}
+                p = files.get(manifest_role)
+                if p and os.path.exists(p):
+                    return p
+            if setting_key:
+                value = self.get_setting(setting_key, True, "") or ""
+                if value and os.path.exists(os.path.expanduser(value)):
+                    return os.path.expanduser(value)
             if variant_manifest is not None:
                 files = variant_manifest.get("files", {}) or {}
                 p = files.get(manifest_role)
@@ -1133,8 +1361,8 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                     return p
             return ""
 
-        def add_file_arg(flag, setting_key, manifest_role):
-            path = resolve_path(setting_key, manifest_role)
+        def add_file_arg(flag, setting_key, manifest_role, prefer_manifest=False):
+            path = resolve_path(setting_key, manifest_role, prefer_manifest=prefer_manifest)
             if path:
                 args.extend([flag, path])
 
@@ -1142,11 +1370,12 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         llm_key = "edit_llm_path" if edit_mode else "llm_path"
         add_file_arg("--vae", vae_key, "vae")
         add_file_arg("--llm", llm_key, "llm")
-        add_file_arg("--clip_l", "clip_l_path", "clip_l")
-        add_file_arg("--clip_g", "clip_g_path", "clip_g")
-        add_file_arg("--t5xxl", "t5xxl_path", "t5xxl")
-        add_file_arg("--audio-vae", "audio_vae_path", "audio_vae")
-        add_file_arg("--embeddings-connectors", "embeddings_connectors_path", "embeddings")
+        add_file_arg("--clip_l", "clip_l_path", "clip_l", prefer_manifest=edit_mode)
+        add_file_arg("--clip_g", "clip_g_path", "clip_g", prefer_manifest=edit_mode)
+        add_file_arg("--t5xxl", "t5xxl_path", "t5xxl", prefer_manifest=edit_mode)
+        add_file_arg("--tokenizer", "tokenizer_path", "tokenizer", prefer_manifest=edit_mode)
+        add_file_arg("--audio-vae", "audio_vae_path", "audio_vae", prefer_manifest=edit_mode)
+        add_file_arg("--embeddings-connectors", "embeddings_connectors_path", "embeddings", prefer_manifest=edit_mode)
         if edit_mode:
             add_file_arg("--llm_vision", "edit_llm_vision_path", "llm_vision")
 
@@ -1299,6 +1528,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 "display": entry.get("display", ""),
                 "description": entry.get("description", ""),
                 "cli_extra": list(entry.get("cli_extra", []) or []),
+                "load_mode": entry.get("load_mode", "auto"),
                 "files": {},
             }
             for fdef in resolved_files:
@@ -1866,7 +2096,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         edit_model_value = self.get_setting("edit_model", True, "") or ""
         if not edit_model_value:
             result.set_output(
-                "No image editing model is configured. Pick a Qwen Image Edit "
+                "No image editing model is configured. Pick an image-edit "
                 "variant in 'Image Editing Settings' (downloadable from the Model "
                 "Library)."
             )
@@ -1961,7 +2191,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         msg_uuid: str,
         output_file: str = None,
     ) -> str:
-        """Edit an image using stable-diffusion.cpp's Qwen Image Edit pipeline.
+        """Edit an image using stable-diffusion.cpp's image-edit pipeline.
 
         Always runs ``sd-cli`` (the sd-server HTTP API has no documented image
         editing endpoint), reads the edit settings from the handler, and
@@ -1993,7 +2223,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
         edit_model_setting = self.get_setting("edit_model", True, "") or ""
         if not edit_model_setting:
             raise ValueError(
-                "No image editing model is configured. Pick a Qwen Image Edit "
+                "No image editing model is configured. Pick an image-edit "
                 "variant in 'Image Editing Settings'."
             )
         edit_model = self._resolve_model_path(edit_model_setting)
