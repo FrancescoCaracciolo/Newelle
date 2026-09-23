@@ -242,6 +242,7 @@ interface_sources = [
 ]
 
 utility_sources = [
+  'utility/screenshot.py',
   'utility/__init__.py',
   'utility/media.py',
   'utility/pip.py',
