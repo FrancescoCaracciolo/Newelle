@@ -2,13 +2,12 @@ import threading
 from gettext import gettext as _
 import uuid
 import inspect
-import base64
 import json
 import os
 import re
 import tempfile
 import socket
-from gi.repository import Gtk, GLib, Pango, GdkPixbuf, Gio, Gdk
+from gi.repository import Gtk, GLib, Pango, Gio, Gdk
 
 from ...utility.message_chunk import get_message_chunks, MessageChunk, normalize_tool_arguments
 from ...utility.source_attribution import CitationSource, extract_source_section
@@ -31,7 +30,7 @@ from .markuptextview import MarkupTextView
 from .tool import ToolWidget, ToolCallSlot, ToolCallsGroupWidget
 from .sources import SourceChip, SourcesButton
 from ...tools import ToolResult
-from ...ui import apply_css_to_widget, load_image_with_callback
+from ...ui import apply_css_to_widget, append_image_codeblock
 
 
 _STREAM_FADE_DURATION_US = 140_000
@@ -998,36 +997,7 @@ class Message(Gtk.Box):
             box.append(self._create_copybox(text, lang, state=state, codeblock_id=codeblock_id, allow_edit=state["editable"], enable_run_callback=True))
 
     def _process_image_codeblock(self, text, box):
-        for line in text.split("\n"):
-            if not line.strip(): continue
-            image = Gtk.Image(css_classes=["image"])
-            if line.startswith("data:image/"):
-                try:
-                    header_end = line.index(",")
-                    data = line[header_end + 1:]
-                    raw_data = base64.b64decode(data)
-                    texture = Gdk.Texture.new_from_bytes(GLib.Bytes.new(raw_data))
-                    image.set_from_paintable(texture)
-                    box.append(image)
-                except Exception:
-                    try:
-                        header_end = line.index(",")
-                        data = line[header_end + 1:]
-                        raw_data = base64.b64decode(data)
-                        loader = GdkPixbuf.PixbufLoader()
-                        loader.write(raw_data)
-                        loader.close()
-                        image.set_from_pixbuf(loader.get_pixbuf())
-                        box.append(image)
-                    except Exception:
-                        pass
-            elif line.startswith(("https://", "http://")):
-                img = image
-                load_image_with_callback(line, lambda pixbuf_loader, i=img: i.set_from_pixbuf(pixbuf_loader.get_pixbuf()))
-                box.append(image)
-            else:
-                image.set_from_file(line)
-                box.append(image)
+        append_image_codeblock(text, box)
 
     def _process_video_codeblock(self, text, box):
         for line in text.split("\n"):
@@ -1472,7 +1442,7 @@ class Message(Gtk.Box):
                     GLib.idle_add(swap_widget)
 
                     # Handle result closure
-                    def on_result(code):
+                    def on_result(code, context_messages):
                         active_group = current_group()
                         if active_group is not None:
                             active_group.set_slot_state(
@@ -1480,8 +1450,8 @@ class Message(Gtk.Box):
                             )
                 else:
                     # Use placeholder (ToolWidget)
-                    def on_result(code):
-                        placeholder.set_result(code[0], code[1])
+                    def on_result(code, context_messages):
+                        placeholder.set_result(code[0], code[1], context_messages)
                         active_group = current_group()
                         if active_group is not None:
                             active_group.set_slot_state(
@@ -1511,7 +1481,11 @@ class Message(Gtk.Box):
                             formatted = f"[Tool: {tool.name}, ID: {tool_uuid}]\n{console_output}"
                             self.controller.append_chat_message(
                                 chat_id,
-                                {"User": "Console", "Message": formatted},
+                                {
+                                    "User": "Console",
+                                    "Message": formatted,
+                                    "ToolContextMessages": context_messages,
+                                },
                             )
                             for context_message in context_messages:
                                 self.controller.append_chat_message(
@@ -1524,8 +1498,11 @@ class Message(Gtk.Box):
                                 )
                     else:
                         code = (True, reply_from_console)
+                        context_messages = self.controller.get_tool_context_messages(
+                            chat_id, state["id_message"], tool.name, tool_uuid
+                        )
                     
-                    GLib.idle_add(on_result, code)
+                    GLib.idle_add(on_result, code, context_messages)
  
                 t = threading.Thread(target=get_response, args=(reply_from_console,))
                 state["running_threads"].append(t)

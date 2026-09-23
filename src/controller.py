@@ -203,6 +203,24 @@ class NewelleController:
                     return msg
         return None
 
+    def get_tool_context_messages(self, chat_id, id_message, tool_name, tool_uuid):
+        """Restore a tool's images, including histories saved before association metadata."""
+        chat = self.chats.get(chat_id, {}).get("chat", [])
+        prefix = f"[Tool: {tool_name}, ID: {tool_uuid}]"
+        for i in range(id_message, len(chat)):
+            entry = chat[i]
+            if entry.get("User") != "Console" or not entry.get("Message", "").startswith(prefix):
+                continue
+            if "ToolContextMessages" in entry:
+                return list(entry["ToolContextMessages"])
+            messages = []
+            for following in chat[i + 1:]:
+                if not following.get("ToolContext"):
+                    break
+                messages.append(following.get("Message", ""))
+            return messages
+        return []
+
     def get_tool_call_uuid(self, chat_id, id_message, tool_name, tool_call_index):
         """Get tool call UUID from chat history during restore."""
         if not hasattr(self, 'chats') or not self.chats or chat_id not in self.chats:
@@ -2409,7 +2427,8 @@ class NewelleController:
                     current_history.append({
                         "User": "Console",
                         "Message": tool_result_msg,
-                        "UUID": tool_uuid
+                        "UUID": tool_uuid,
+                        "ToolContextMessages": tool_context_messages,
                     })
                     for context_message in tool_context_messages:
                         current_history.append({
@@ -2421,6 +2440,7 @@ class NewelleController:
                         self.chats[chat_id]["chat"].append({
                             "User": "Console",
                             "Message": tool_result_msg,
+                            "ToolContextMessages": tool_context_messages,
                         })
                         for context_message in tool_context_messages:
                             self.chats[chat_id]["chat"].append({

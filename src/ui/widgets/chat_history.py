@@ -190,6 +190,8 @@ class ChatHistory(Gtk.Box):
             self.lazy_loaded_start = 0
             self.lazy_loaded_end = total_messages
             for i in range(len(self.chat)):
+                if self.chat[i].get("ToolContext"):
+                    continue
                 if self.chat[i]["User"] == "User":
                     self.show_message(self.chat[i]["Message"], True, id_message=i, is_user=True)
                 elif self.chat[i]["User"] == "Assistant":
@@ -246,6 +248,8 @@ class ChatHistory(Gtk.Box):
                 index = pending[0]
                 pending[0] += 1
                 entry = self.chat[index]
+                if entry.get("ToolContext"):
+                    continue
                 self._load_message_range(index, index + 1)
                 if (
                     entry.get("User")
@@ -903,7 +907,7 @@ class ChatHistory(Gtk.Box):
         j = id_message - 1
         while j >= 0:
             entry = self.chat[j]
-            if entry.get("User") == "Console":
+            if entry.get("User") == "Console" or entry.get("ToolContext"):
                 j -= 1
                 continue
             if entry.get("User") == "Assistant" and not str(
@@ -1767,6 +1771,9 @@ class ChatHistory(Gtk.Box):
     def _load_message_range(self, start_idx: int, end_idx: int):
         """Load messages in the specified range (start_idx inclusive, end_idx exclusive)"""
         for i in range(start_idx, end_idx):
+            # Synthetic tool context belongs to the model, not the user UI.
+            if self.chat[i].get("ToolContext"):
+                continue
             if self.chat[i]["User"] == "User":
                 self.show_message(
                     self.chat[i]["Message"], True, id_message=i, is_user=True
@@ -1870,6 +1877,8 @@ class ChatHistory(Gtk.Box):
         new_rows = []
         
         for i in range(new_start, self.lazy_loaded_start):
+            if self.chat[i].get("ToolContext"):
+                continue
             # Create message content box using show_message with return_widget=True
             if self.chat[i]["User"] == "User":
                 content_box = self.show_message(
@@ -2102,6 +2111,8 @@ class ChatHistory(Gtk.Box):
 
         # Re-populate the chat with all messages
         for i in range(len(self.chat)):
+            if self.chat[i].get("ToolContext"):
+                continue
             if self.chat[i]["User"] == "User":
                 self.show_message(self.chat[i]["Message"], True, id_message=i, is_user=True)
             elif self.chat[i]["User"] == "Assistant":
