@@ -566,6 +566,8 @@ class VoiceModeWindow(Gtk.Window):
         self.on_closed = on_closed
         self.session = VoiceSessionController()
         self.chat_id = None
+        self._chat_mode = self.settings.get_string("voice-mode-chat")
+        self._selected_chat_id = self.controller.newelle_settings.chat_id
         self._cancel_event = self.session.cancel_event
         self._recording_thread = None
         self._capture_thread = None
@@ -1496,8 +1498,10 @@ class VoiceModeWindow(Gtk.Window):
 
             GLib.idle_add(self._set_state, VoiceSessionState.RUNNING)
             # Keep prior turns when capture restarts after each response.
-            if self.chat_id is None:
-                self.chat_id = self.controller.create_voice_chat()
+            if self.chat_id not in self.controller.chats:
+                self.chat_id = self.controller.get_voice_chat(
+                    self._chat_mode, self._selected_chat_id
+                )
             configured_mode = self.settings.get_string("voice-mode-mode")
             mode_name = None if configured_mode in ("", "current") else configured_mode
             if (

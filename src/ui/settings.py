@@ -3485,6 +3485,23 @@ class Settings(Adw.Window):
 
             copy_button.connect("clicked", copy_override_command)
 
+        chat_row = Adw.ComboRow(
+            title=_("Voice pill chat"),
+            subtitle=_("Choose which conversation the voice pill uses"),
+        )
+        chat_modes = (
+            (_("Start a new chat each time"), "new"),
+            (_("Use the currently selected chat"), "current"),
+            (_("Always use the same voice pill chat"), "shared"),
+        )
+        chat_helper = ComboRowHelper(
+            chat_row, chat_modes, self.settings.get_string("voice-mode-chat")
+        )
+        chat_helper.connect(
+            "changed", lambda _helper, value: self.settings.set_string("voice-mode-chat", value)
+        )
+        group.add(chat_row)
+
         position_row = Adw.ComboRow(
             title=_("Pill position"),
             subtitle=_("Choose where Voice Mode appears on the desktop"),

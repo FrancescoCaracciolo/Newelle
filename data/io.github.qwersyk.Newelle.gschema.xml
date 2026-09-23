@@ -83,6 +83,14 @@
 	      <key name="tts-voice" type="s">
             <default>"{}"</default>
         </key>
+        <key name="voice-mode-chat" type="s">
+            <choices>
+                <choice value="new"/>
+                <choice value="current"/>
+                <choice value="shared"/>
+            </choices>
+            <default>"new"</default>
+        </key>
         <key name="voice-mode-position" type="s">
             <default>"bottom-center"</default>
         </key>

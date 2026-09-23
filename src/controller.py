@@ -433,6 +433,20 @@ class NewelleController:
         self.save_chats()
         return chat_id
 
+    def get_voice_chat(self, mode, current_chat_id):
+        """Resolve a voice session's chat, recreating deleted chats as needed."""
+        if mode == "current" and current_chat_id in self.chats:
+            return current_chat_id
+        if mode == "shared":
+            for chat_id, chat in self.chats.items():
+                if chat.get("voice_shared"):
+                    return chat_id
+        chat_id = self.create_voice_chat()
+        if mode == "shared":
+            self.chats[chat_id]["voice_shared"] = True
+            self.save_chats()
+        return chat_id
+
     def create_visible_chat(self, name: str | None = None, profile: str | None = None, folder_id: int | None = None):
         """Create a new visible chat entry and refresh history."""
         chat_id = self.next_chat_id
