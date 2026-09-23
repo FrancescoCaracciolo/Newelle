@@ -1362,12 +1362,10 @@ class Message(Gtk.Box):
                 tool_failed = False
                 if restore:
                     try:
-                        result = tool.restore(
-                            msg_uuid=msg_uuid,
-                            tool_uuid=tool_uuid,
-                            chat_id=chat_id,
-                            **args,
-                        )
+                        # Merge into a dict first: the model must never be able to
+                        # override (or collide with) the framework-injected ids.
+                        tool_kwargs = {**args, "msg_uuid": msg_uuid, "tool_uuid": tool_uuid, "chat_id": chat_id}
+                        result = tool.restore(**tool_kwargs)
                     except Exception as e:
                         tool_failed = True
                         result = ToolResult()
@@ -1387,12 +1385,8 @@ class Message(Gtk.Box):
                         result = redirect
                     else:
                         try:
-                            result = tool.execute(
-                                msg_uuid=msg_uuid,
-                                tool_uuid=tool_uuid,
-                                chat_id=chat_id,
-                                **args,
-                            )
+                            tool_kwargs = {**args, "msg_uuid": msg_uuid, "tool_uuid": tool_uuid, "chat_id": chat_id}
+                            result = tool.execute(**tool_kwargs)
                         except Exception as e:
                             tool_failed = True
                             result = ToolResult()

@@ -2395,7 +2395,7 @@ class NewelleController:
                             if tool_result_output is not None:
                                 cont = True
                         else:
-                            tool_kwargs = {"msg_uuid": msg_uuid, "tool_uuid": tool_uuid, "chat_id": chat_id, **tool_args}
+                            tool_kwargs = {**tool_args, "msg_uuid": msg_uuid, "tool_uuid": tool_uuid, "chat_id": chat_id}
                             should_run_on_main_thread = (
                                 force_tools_on_main_thread or tool.run_on_main_thread
                             )
