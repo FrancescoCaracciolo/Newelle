@@ -639,7 +639,7 @@ class Message(Gtk.Box):
         if self._has_renderable_citation(text):
             widgets = {}
             markdown = self._inject_source_widgets(text, widgets)
-            box.append(self._build_markup_overlay(markdown, widgets, text))
+            box.append(self._build_markup_overlay(markdown, widgets))
             return
 
         label_kwargs = dict(
@@ -692,22 +692,12 @@ class Message(Gtk.Box):
             parts[index] = replace_segment(parts[index])
         return "".join(parts)
 
-    def _build_markup_overlay(self, markdown: str, widgets: dict, measure_text: str) -> Gtk.Widget:
+    def _build_markup_overlay(self, markdown: str, widgets: dict) -> Gtk.Widget:
         overlay = Gtk.Overlay(hexpand=True)
-        measure = Gtk.Label(
-            label=measure_text,
-            wrap=True,
-            wrap_mode=Pango.WrapMode.WORD_CHAR,
-            width_chars=1,
-            hexpand=True,
-            xalign=0,
-        )
-        measure.set_opacity(0)
-        overlay.set_child(measure)
-
-        textview = MarkupTextView(hexpand=True, valign=Gtk.Align.START)
-        overlay.add_overlay(textview)
-        overlay.set_measure_overlay(textview, True)
+        textview = MarkupTextView(fit_content=True, hexpand=True, valign=Gtk.Align.START)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        # Measure the actual text and child anchors, including wrapped chips.
+        overlay.set_child(textview)
 
         markup = markwon_to_pango(markdown, validate=not self.streaming)
         markup = re.sub(r'WZIDZW(\d+)WZIDZW', r'<widget id="\1"/>', markup)
@@ -1033,15 +1023,11 @@ class Message(Gtk.Box):
     def _process_inline_chunks(self, chunk, box):
         if not chunk.subchunks: return
         overlay = Gtk.Overlay()
-        label = Gtk.Label(wrap=True)
-        label.set_opacity(0)
-        overlay.set_child(label)
-        textview = MarkupTextView()
+        textview = MarkupTextView(fit_content=True)
         textview.set_valign(Gtk.Align.START)
         textview.set_hexpand(True)
-        overlay.add_overlay(textview)
-        overlay.set_measure_overlay(textview, True)
-        overlay._inline_measure = label
+        textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        overlay.set_child(textview)
         overlay._inline_textview = textview
         overlay._inline_latex_widgets = {}
         overlay._inline_processed_markup = None
@@ -1052,7 +1038,6 @@ class Message(Gtk.Box):
     def _update_inline_chunks_widget(self, overlay, chunk):
         """Update mixed inline markup without rebuilding rendered equations."""
         subchunks = chunk.subchunks or []
-        overlay._inline_measure.set_label(" ".join(ch.text for ch in subchunks))
 
         full_markdown = ""
         widgets_dict = {}
