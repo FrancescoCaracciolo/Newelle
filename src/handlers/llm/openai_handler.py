@@ -741,18 +741,26 @@ class OpenAIHandler(LLMHandler):
         )
 
     def _create_response(self, client, kwargs: dict, full_input: list, anchor, store: bool):
+        # Some compatible providers reject output status metadata on input.
+        # Strip it from every input item at the request boundary;
+        # saved output and history hashes must retain the original values.
+        request_input = [
+            {key: value for key, value in item.items() if key != "status"}
+            for item in full_input
+        ]
         request = kwargs.copy()
+
         if anchor is not None and store:
             state, response_end = anchor
             request["previous_response_id"] = state["id"]
-            request["input"] = full_input[response_end:]
+            request["input"] = request_input[response_end:]
             try:
                 return client.responses.create(**request)
             except Exception as error:
                 if not self._invalid_previous_response(error):
                     raise
         request.pop("previous_response_id", None)
-        request["input"] = full_input
+        request["input"] = request_input
         return client.responses.create(**request)
 
     def _consume_responses_stream(
