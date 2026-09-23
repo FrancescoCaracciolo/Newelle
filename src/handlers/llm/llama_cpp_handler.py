@@ -26,6 +26,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk
 from ...ui.model_library import (
     LibraryModel,
     ModelLibraryWindow,
+    get_local_backend_label,
 )
 from ...utility.model_icons import get_model_icon
 from ...ui.build_dependency_warning import BuildDependencyWarning
@@ -189,6 +190,10 @@ class LlamaCPPHandler(OpenAIHandler):
         custom_model_list = self.get_custom_model_list()
         mmproj_list = self.get_mmproj_list()
         settings =  [
+                ExtraSettings.InfoSetting(
+                    "installed_backend_status", _("Installed built-in backend"),
+                    get_local_backend_label(self),
+                ),
                 ExtraSettings.ComboSetting("model", _("Model"), _("Model to use"), self.get_custom_model_list(), 
                 custom_model_list[0][1] if len(custom_model_list) > 0 else "", 
                 refresh=lambda button: self.get_custom_model_list(True),
@@ -364,6 +369,8 @@ class LlamaCPPHandler(OpenAIHandler):
         models = []
         for model in data:
             tags = model["tags"] + model["capabilities"].split("\n")
+            installed = self.model_installed(model["title"])
+            model_path = os.path.join(self.model_folder, model["title"] + ".gguf")
             icon_name, icon_color = get_model_icon(
                 model["title"],
                 tags,
@@ -373,10 +380,12 @@ class LlamaCPPHandler(OpenAIHandler):
                 name=model["title"],
                 description=model["description"],
                 tags=tags,
-                is_pinned=self.model_installed(model["title"]),
-                is_installed=self.model_installed(model["title"]),
+                is_pinned=installed,
+                is_installed=installed,
                 icon_name=icon_name,
                 icon_color=icon_color,
+                size_bytes=os.path.getsize(model_path) if installed else None,
+                can_offload=True,
             ))
         for model_name, model_file in self.models:
             if model_name not in [m.id for m in models]:
@@ -390,6 +399,8 @@ class LlamaCPPHandler(OpenAIHandler):
                     is_installed=True,
                     icon_name=icon_name,
                     icon_color=icon_color,
+                    size_bytes=os.path.getsize(self._resolve_model_path(model_file)),
+                    can_offload=True,
                 )] + models
         return models
 

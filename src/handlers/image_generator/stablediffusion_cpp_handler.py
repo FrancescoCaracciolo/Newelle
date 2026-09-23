@@ -15,6 +15,7 @@ from ...handlers import ErrorSeverity
 from ...ui.model_library import (
     LibraryModel,
     ModelLibraryWindow,
+    get_local_backend_label,
 )
 from ...utility.model_icons import get_model_icon
 from ...ui.build_dependency_warning import BuildDependencyWarning
@@ -535,7 +536,10 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                     pass
 
     def get_extra_settings(self) -> list:
-        settings = []
+        settings = [ExtraSettings.InfoSetting(
+            "installed_backend_status", _("Installed built-in backend"),
+            get_local_backend_label(self),
+        )]
 
         # Sync special settings with the currently selected model. When the user
         # picks a library variant the VAE/LLM/CLIP/T5XXL/etc fields are filled
@@ -1456,6 +1460,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
                 is_installed=self.model_installed(entry["id"]),
                 icon_name=icon_name,
                 icon_color=icon_color,
+                can_offload="--offload-to-cpu" in entry.get("cli_extra", []),
             ))
         return models
 
@@ -3019,6 +3024,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             GLib.idle_add(lambda: carousel.scroll_to(carousel.get_nth_page(5), True))
             GLib.idle_add(lambda: self.settings_update())
             self.set_setting("gpu_acceleration", asset.get("backend") != "cpu")
+            self.set_setting("installed_backend", asset.get("backend", "cpu"))
             task.complete(_("Installed"))
 
         except DownloadCancelled:
@@ -3176,6 +3182,7 @@ class StableDiffusionCPPHandler(ImageGeneratorHandler):
             GLib.idle_add(lambda: carousel.scroll_to(carousel.get_nth_page(5), True))
             GLib.idle_add(lambda: self.settings_update())
             self.set_setting("gpu_acceleration", backend != "cpu")
+            self.set_setting("installed_backend", backend)
 
         except BuildCancelled:
             GLib.idle_add(append_log, "\nBuild stopped by user.\n")

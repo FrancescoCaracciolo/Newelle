@@ -11,7 +11,7 @@ from ...utility.download_manager import (
     get_download_manager,
 )
 from ...utility.huggingface_download import download_huggingface_file
-from ...ui.model_library import ModelLibraryWindow, LibraryModel
+from ...ui.model_library import ModelLibraryWindow, LibraryModel, get_local_backend_label
 from gettext import gettext as _
 import os
 import platform
@@ -146,6 +146,10 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
     def get_extra_settings(self) -> list:
         custom_model_list = self.get_custom_model_list()
         settings =  [
+                ExtraSettings.InfoSetting(
+                    "installed_backend_status", _("Installed built-in backend"),
+                    get_local_backend_label(self),
+                ),
                 ExtraSettings.ComboSetting("model", _("Model"), _("Model to use"), self.get_custom_model_list(), 
                 custom_model_list[0][1] if len(custom_model_list) > 0 else "", 
                 refresh=lambda button: self.get_custom_model_list(True),
@@ -318,13 +322,17 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
         data = self.library_data
         models = []
         for model in data:
+            installed = self.model_installed(model["title"])
+            model_path = os.path.join(self.model_folder, model["title"] + ".gguf")
             models.append(LibraryModel(
                 id=model["title"],
                 name=model["title"],
                 description=model["description"],
                 tags=model["tags"] + model["capabilities"].split("\n"),
-                is_pinned=self.model_installed(model["title"]),
-                is_installed=self.model_installed(model["title"]),
+                is_pinned=installed,
+                is_installed=installed,
+                size_bytes=os.path.getsize(model_path) if installed else None,
+                can_offload=True,
             ))
         for model_name, model_file in self.models:
             if model_name not in [m.id for m in models]:
@@ -335,6 +343,8 @@ class LlamaCPPEmbeddingHandler(EmbeddingHandler):
                     tags=["custom"],
                     is_pinned=True,
                     is_installed=True,
+                    size_bytes=os.path.getsize(self._resolve_model_path(model_file)),
+                    can_offload=True,
                 )] + models
         return models
 

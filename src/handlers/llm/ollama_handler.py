@@ -165,6 +165,7 @@ class OllamaHandler(LLMHandler):
                 is_pinned=pinned,
                 icon_name=icon_name,
                 icon_color=icon_color,
+                can_offload=True,
             )
 
         # 1. Pinned Models

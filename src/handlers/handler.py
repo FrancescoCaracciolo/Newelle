@@ -105,6 +105,7 @@ class Handler():
             - description: description for the setting
             - default: default value for the setting
             - type: What type of row to create, possible rows:
+                - info: read-only title and description
                 - button: runs a function when the button is pressed
                     - label: label of the button 
                     - icon: icon of the button, if label is not provided
