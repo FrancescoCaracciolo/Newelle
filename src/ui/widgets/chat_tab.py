@@ -1010,6 +1010,8 @@ class ChatTab(Gtk.Box):
     # Message sending and streaming
     def send_message(self, manual=True):
         """Send a message in the chat and get bot answer."""
+        if self.controller.workspace_switching or self.chat_id not in self.controller.workspace_chats():
+            return
         if manual:
             self.auto_run_times = 0
             self.tool_call_count = 0

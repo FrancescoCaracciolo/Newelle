@@ -7,9 +7,10 @@ import time
 import re
 import copy
 
-from .tools import Tool, ToolRegistry, ToolResult
+from .tools import Command, Tool, ToolRegistry, ToolResult
 from .skills import SkillManager
 from .modes import ModeManager
+from .workspaces import WorkspaceController, workspace_request, workspace_storage
 from .utility.media import chat_contains_vision, get_image_base64, get_image_path, extract_supported_files
 from .utility.audio_input import AudioInputManager
 from .utility.media import audio_history_text, audio_text, extract_audio
@@ -87,7 +88,7 @@ EXTENSIONS: Reload EXTENSIONS
     COMPACT_MODE = 17
     COMPACT_INPUT_BAR = 18
 
-class NewelleController:
+class NewelleController(WorkspaceController):
     """Main controller, manages the application
 
     Attributes: 
@@ -110,13 +111,13 @@ class NewelleController:
         """Return chat IDs in stable chronological order (sorted by ID)."""
         if not hasattr(self, 'chats') or not self.chats:
             return []
-        return sorted(self.chats.keys())
+        return sorted(self.workspace_chats())
 
     def _get_fallback_chat_id(self):
         """Return first available chat_id when current is invalid."""
         if not self.chats:
             return None
-        return min(self.chats.keys())
+        return min((cid for cid, chat in self.workspace_chats().items() if not chat.get("call")), default=None)
 
     @property
     def chat(self):
@@ -259,6 +260,7 @@ class NewelleController:
         self.scheduled_tasks_lock = threading.Lock()
         self.save_lock = threading.Lock()
         self.scheduler_source_id = None
+        self.init_workspace_state()
 
     def ui_init(self):
         """Init necessary variables for the UI and load models and handlers"""
@@ -279,6 +281,7 @@ class NewelleController:
         self.skill_manager.set_mode_overrides(self.mode_manager.get_active_mode()["skills"])
         self.newelle_settings = NewelleSettings(self.mode_manager)
         self.newelle_settings.load_settings(self.settings)
+        loaded_extensions_settings = self.newelle_settings.extensions_settings
         self.load_chats(self.newelle_settings.chat_id)
         self.handlers = HandlersManager(
             self.settings,
@@ -288,8 +291,10 @@ class NewelleController:
             self,
         )
         self.handlers.select_handlers(self.newelle_settings)
+        if loaded_extensions_settings != self.newelle_settings.extensions_settings:
+            self.reload_extensions()
+        self.require_tool_update()
         threading.Thread(target=self.handlers.cache_handlers).start()
-        self.handlers.add_tools(self.tools)
         self.load_scheduled_tasks()
     def init_paths(self) -> None:
         """Define paths for the application"""
@@ -364,6 +369,7 @@ class NewelleController:
     def load_chats(self, chat_id):
         """Load chats"""
         self.filename = "chats.pkl"
+        raw = {}
         if os.path.exists(self.chats_path):
             with open(self.chats_path, 'rb') as f:
                 raw = pickle.load(f)
@@ -378,6 +384,8 @@ class NewelleController:
         if self.chats and hasattr(self, 'newelle_settings'):
             if self.newelle_settings.chat_id not in self.chats:
                 self.newelle_settings.chat_id = min(self.chats.keys())
+
+        self.load_workspaces(raw)
 
     def save_chats(self):
         """Save chats without exposing a partially written storage file."""
@@ -395,6 +403,8 @@ class NewelleController:
                 ) as temporary_file:
                     temporary_path = temporary_file.name
                     pickle.dump({
+                        "workspaces": self.workspaces,
+                        "active_workspace_id": self.active_workspace_id,
                         "chats": self.chats,
                         "next_chat_id": self.next_chat_id,
                         "folders": self.folders,
@@ -412,13 +422,18 @@ class NewelleController:
                     except FileNotFoundError:
                         pass
 
-    def create_call_chat(self):
-        """Create a new call chat that won't be displayed in the chat list"""
+    @workspace_storage
+    def create_call_chat(self, workspace_id=None):
+        """Create a hidden chat in the specified or active workspace."""
+        workspace_id = workspace_id or self.active_workspace_id
+        if workspace_id not in self.workspaces:
+            raise ValueError(_("Workspace not found."))
         chat_id = self.next_chat_id
         self.next_chat_id += 1
         new_chat = {
             "name": _("Call ") + str(chat_id),
             "chat": [],
+            "workspace_id": workspace_id,
             "call": True
         }
         self.chats[chat_id] = new_chat
@@ -435,11 +450,11 @@ class NewelleController:
 
     def get_voice_chat(self, mode, current_chat_id):
         """Resolve a voice session's chat, recreating deleted chats as needed."""
-        if mode == "current" and current_chat_id in self.chats:
+        if mode == "current" and current_chat_id in self.workspace_chats():
             return current_chat_id
         if mode == "shared":
             for chat_id, chat in self.chats.items():
-                if chat.get("voice_shared"):
+                if chat.get("voice_shared") and chat.get("workspace_id") == self.active_workspace_id:
                     return chat_id
         chat_id = self.create_voice_chat()
         if mode == "shared":
@@ -447,8 +462,12 @@ class NewelleController:
             self.save_chats()
         return chat_id
 
-    def create_visible_chat(self, name: str | None = None, profile: str | None = None, folder_id: int | None = None):
+    @workspace_storage
+    def create_visible_chat(self, name: str | None = None, profile: str | None = None, folder_id: int | None = None, workspace_id: str | None = None):
         """Create a new visible chat entry and refresh history."""
+        workspace_id = workspace_id or self.active_workspace_id
+        if workspace_id not in self.workspaces:
+            raise ValueError(_("Workspace not found."))
         chat_id = self.next_chat_id
         self.next_chat_id += 1
         if name is None:
@@ -458,6 +477,7 @@ class NewelleController:
             "chat": [],
             "id": str(uuid_lib.uuid4()),
             "branched_from": None,
+            "workspace_id": workspace_id,
         }
         if profile is not None:
             new_chat["profile"] = profile
@@ -469,8 +489,12 @@ class NewelleController:
             GLib.idle_add(self.ui_controller.update_history)
         return chat_id
 
-    def create_folder(self, name: str, color: str, icon: str = "folder-symbolic") -> int:
+    @workspace_storage
+    def create_folder(self, name: str, color: str, icon: str = "folder-symbolic", workspace_id=None) -> int:
         """Create a new chat folder and return its ID."""
+        workspace_id = workspace_id or self.active_workspace_id
+        if workspace_id not in self.workspaces:
+            raise ValueError(_("Workspace not found."))
         folder_id = self.next_folder_id
         self.next_folder_id += 1
         self.folders[folder_id] = {
@@ -478,6 +502,7 @@ class NewelleController:
             "color": color,
             "icon": icon,
             "chat_ids": [],
+            "workspace_id": workspace_id,
             "expanded": True,
         }
         self.save_chats()
@@ -488,7 +513,7 @@ class NewelleController:
     def ensure_scheduled_tasks_folder(self) -> int:
         """Ensure the 'Scheduled Tasks' folder exists, creating it if needed."""
         folder_name = _("Scheduled Tasks")
-        for folder_id, folder in self.folders.items():
+        for folder_id, folder in self.workspace_folders().items():
             if folder["name"] == folder_name:
                 return folder_id
         return self.create_folder(folder_name, "#3584e4", "alarm-symbolic")
@@ -527,6 +552,10 @@ class NewelleController:
 
     def move_chat_to_folder(self, chat_id: int, folder_id: int):
         """Move a chat into a folder, removing it from any previous folder."""
+        if chat_id not in self.chats or folder_id not in self.folders:
+            return
+        if self.chats[chat_id].get("workspace_id") != self.folders[folder_id].get("workspace_id"):
+            return
         self.remove_chat_from_folder(chat_id, save=False)
         if folder_id in self.folders:
             if chat_id not in self.folders[folder_id]["chat_ids"]:
@@ -716,12 +745,13 @@ class NewelleController:
             "cron": None,
             "enabled": bool(task.get("enabled", True)),
             "created_at": task.get("created_at") or now.isoformat(),
-            "last_run_at": None,
+            "last_run_at": task.get("last_run_at"),
             "next_run_at": None,
             "latest_chat_id": task.get("latest_chat_id"),
             "last_run_status": task.get("last_run_status"),
             "last_error": task.get("last_error"),
             "running": False,
+            "workspace_id": task.get("workspace_id", "default") if task.get("workspace_id", "default") in self.workspaces else "default",
             "folder_id": task.get("folder_id"),
         }
 
@@ -731,7 +761,8 @@ class NewelleController:
         if normalized["schedule_type"] == "once":
             run_at = self._parse_scheduled_datetime(task["run_at"])
             normalized["run_at"] = run_at.isoformat()
-            if normalized["enabled"] and run_at > now:
+            # Preserve pending runs while their workspace was inactive, including restart.
+            if normalized["enabled"] and (run_at > now or task.get("next_run_at")):
                 normalized["next_run_at"] = run_at.isoformat()
             else:
                 normalized["enabled"] = False
@@ -739,7 +770,11 @@ class NewelleController:
             parsed = self._parse_cron_expression(str(task["cron"]))
             normalized["cron"] = parsed["expression"]
             if normalized["enabled"]:
-                normalized["next_run_at"] = self._get_next_cron_run(parsed["expression"], now).isoformat()
+                pending = task.get("next_run_at")
+                normalized["next_run_at"] = (
+                    self._parse_scheduled_datetime(pending).isoformat() if pending
+                    else self._get_next_cron_run(parsed["expression"], now).isoformat()
+                )
 
         if normalized["latest_chat_id"] is not None:
             try:
@@ -800,6 +835,7 @@ class NewelleController:
                 "cron": cron,
                 "enabled": True,
                 "created_at": now.isoformat(),
+                "workspace_id": self.active_workspace_id,
                 "folder_id": folder_id,
             },
             now,
@@ -816,7 +852,6 @@ class NewelleController:
             for task in self.scheduled_tasks:
                 if task["id"] != task_id:
                     continue
-                task["running"] = False
                 if enabled:
                     task["enabled"] = True
                     if task["schedule_type"] == "once":
@@ -872,9 +907,13 @@ class NewelleController:
     def _scheduler_tick(self):
         now = datetime.datetime.now().astimezone()
         due_tasks = []
-        with self.scheduled_tasks_lock:
+        with self.workspace_lock, self.scheduled_tasks_lock:
+            if self.workspace_switching:
+                return True
             changed = False
             for task in self.scheduled_tasks:
+                if task.get("workspace_id", "default") != self.active_workspace_id:
+                    continue
                 if not task.get("enabled") or task.get("running") or not task.get("next_run_at"):
                     continue
                 next_run = self._parse_scheduled_datetime(task["next_run_at"])
@@ -882,20 +921,27 @@ class NewelleController:
                     continue
 
                 task["running"] = True
+                # Reserve before starting the worker, even if its schedule is deleted.
+                self.workspace_requests += 1
                 task["last_error"] = None
                 due_tasks.append(copy.deepcopy(task))
                 if task["schedule_type"] == "once":
                     task["enabled"] = False
                     task["next_run_at"] = None
                 else:
-                    task["next_run_at"] = self._get_next_cron_run(task["cron"], next_run).isoformat()
+                    task["next_run_at"] = self._get_next_cron_run(task["cron"], max(next_run, now)).isoformat()
                 changed = True
 
             if changed:
                 self.settings.set_string("scheduled-tasks", json.dumps(self.scheduled_tasks))
 
         for task in due_tasks:
-            threading.Thread(target=self._run_scheduled_task, args=(task,), daemon=True).start()
+            try:
+                threading.Thread(target=self._run_scheduled_task, args=(task,), daemon=True).start()
+            except Exception:
+                with self.workspace_lock:
+                    self.workspace_requests -= 1
+                raise
         return True
 
     def _run_scheduled_task(self, task: dict):
@@ -908,6 +954,7 @@ class NewelleController:
                 name=self._format_scheduled_chat_name(task),
                 profile=self.newelle_settings.current_profile,
                 folder_id=folder_id,
+                workspace_id=task.get("workspace_id", "default"),
             )
             self.run_llm_with_tools(
                 message=task["task"],
@@ -929,6 +976,8 @@ class NewelleController:
             if self.ui_controller is not None:
                 GLib.idle_add(self._show_scheduled_task_toast, _("Scheduled task failed"))
         finally:
+            with self.workspace_lock:
+                self.workspace_requests -= 1
             finished_at = datetime.datetime.now().astimezone().isoformat()
             with self.scheduled_tasks_lock:
                 for stored_task in self.scheduled_tasks:
@@ -1194,7 +1243,8 @@ class NewelleController:
             self.tools.update_tools(mcp_integration.get_tools())
     
     def get_commands(self):
-        commands = []
+        commands = [Command("cd", _("Change workspace folder"), self.cd_command,
+                            icon_name="folder-open-symbolic", restore_func=self.restore_cd_command)]
         commands.extend(self.integrationsloader.get_commands())
         commands.extend(self.extensionloader.get_commands())
         return commands
@@ -1283,6 +1333,10 @@ class NewelleController:
         """
         if profile_name == "Assistant" or profile_name == self.settings.get_string("current-profile"):
             return
+        for workspace in self.workspaces.values():
+            if workspace.get("profile") == profile_name:
+                workspace["profile"] = None
+        self.save_chats()
         del self.newelle_settings.profile_settings[profile_name]
         self.settings.set_string("profiles", json.dumps(self.newelle_settings.profile_settings))
         self.update_settings()
@@ -1415,7 +1469,7 @@ class NewelleController:
             dict: Export data in JSON format
         """
         chats_list = []
-        for _cid, chat_data in self.chats.items():
+        for _cid, chat_data in self.workspace_chats().items():
             chat_entry = {
                 "name": chat_data["name"],
                 "profile": chat_data.get("profile", None),
@@ -1856,6 +1910,7 @@ class NewelleController:
         return prompts, history, old_history, old_user_prompt, chat, effective_chat_id
 
 
+    @workspace_request
     def generate_response(self, stream_number_variable, update_callback, chat_id=None, is_current=None):
         """
         Generator for the response.
@@ -2012,6 +2067,7 @@ class NewelleController:
             'usage': response_usage,
         })
 
+    @workspace_request
     def run_llm_with_tools(
         self,
         message: str,

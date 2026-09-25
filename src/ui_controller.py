@@ -11,6 +11,54 @@ class UIController:
     def require_tool_update(self):
         self.window.controller.require_tool_update()
 
+    def workspace_action(self, action, workspace_id=None, **data):
+        window = self.window
+        controller = window.controller
+        if window.workspace_ui_busy():
+            raise RuntimeError("Finish or stop active work before changing workspaces")
+        if workspace_id is not None and workspace_id not in controller.workspaces:
+            raise KeyError("Workspace not found")
+        if action == "path":
+            controller._remote_workspace_action(action, workspace_id, **data)
+            window.main_path = controller.active_workspace["path"]
+            explorer = window.get_current_explorer_panel()
+            if explorer is None:
+                for index in range(window.canvas_tabs.get_n_pages()):
+                    candidate = window.canvas_tabs.get_nth_page(index).get_child()
+                    if hasattr(candidate, "set_main_path"):
+                        explorer = candidate
+                        break
+            if explorer is not None:
+                explorer.set_main_path(window.main_path)
+                explorer.update_folder()
+        elif action == "switch":
+            if not window.switch_workspace(workspace_id):
+                raise RuntimeError("Workspace switch blocked by active work")
+        elif action == "move":
+            if data["chat_id"] not in controller.workspace_chats():
+                raise KeyError("Chat not found in active workspace")
+            if not window.move_chat_to_workspace(data["chat_id"], workspace_id):
+                raise RuntimeError("Chat transfer blocked by active work")
+        else:
+            if action == "delete" and workspace_id == controller.active_workspace_id:
+                if workspace_id == "default":
+                    raise ValueError("The Default workspace cannot be deleted")
+                if not window.switch_workspace("default"):
+                    raise RuntimeError("Workspace switch blocked by active work")
+            workspace_id = controller._remote_workspace_action(action, workspace_id, **data)
+            if action == "edit" and workspace_id == controller.active_workspace_id:
+                if not window.switch_workspace(workspace_id, force=True):
+                    raise RuntimeError("Workspace settings saved; activation blocked by active work")
+            if action == "delete":
+                cached = window._workspace_views.pop(workspace_id, None)
+                if cached is not None:
+                    target = window.chat_tabs if controller.active_workspace_id == "default" else window._workspace_views.setdefault("default", Adw.TabView())
+                    while cached.get_n_pages():
+                        cached.transfer_page(cached.get_nth_page(0), target, target.get_n_pages())
+        window.refresh_workspace_picker()
+        window.update_history()
+        return workspace_id
+
     def refresh_extension_resources(self, refreshes):
         """Refresh extension-backed UI surfaces that are currently alive."""
         self.window.extensionloader = self.window.controller.extensionloader

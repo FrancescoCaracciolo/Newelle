@@ -144,6 +144,36 @@ class MyApp(Adw.Application):
           animation-iteration-count: infinite;
         }
 
+        /* Workspace controls follow the current light/dark Adwaita palette. */
+        .workspace-switcher > button {
+          padding: 10px 12px;
+          border-radius: 12px;
+          background-color: alpha(@view_fg_color, 0.045);
+          box-shadow: inset 0 0 0 1px alpha(@view_fg_color, 0.06);
+        }
+        .workspace-switcher > button:hover,
+        .workspace-switcher > button:checked {
+          background-color: alpha(@accent_bg_color, 0.12);
+        }
+        .workspace-popover row.workspace-active {
+          background-color: alpha(@accent_bg_color, 0.10);
+        }
+        .workspace-popover row.workspace-active:hover {
+          background-color: alpha(@accent_bg_color, 0.17);
+        }
+
+        .workspace-avatar-button > button {
+          padding: 6px;
+          border-radius: 999px;
+        }
+        .workspace-avatar-badge {
+          padding: 5px;
+          border: 2px solid @window_bg_color;
+          border-radius: 999px;
+          background-color: @accent_bg_color;
+          color: @accent_fg_color;
+        }
+
         /* Chat history row styling */
         .navigation-sidebar row.chat-row-selected {
           background-color: alpha(@accent_bg_color, 0.15);
@@ -349,7 +379,7 @@ class MyApp(Adw.Application):
     def close_settings(self, *a):
         settings = Gio.Settings.new('io.github.qwersyk.Newelle')
         settings.set_int("chat", self.win.chat_id)
-        settings.set_string("path", os.path.normpath(self.win.main_path))
+        self.win.save_workspace_tabs()
         self.win.update_settings()
         self.settingswindow.destroy()
         return True
@@ -589,7 +619,7 @@ class MyApp(Adw.Application):
         self.win.save_chat()
         settings = Gio.Settings.new('io.github.qwersyk.Newelle')
         settings.set_int("chat", self.win.chat_id)
-        settings.set_string("path", os.path.normpath(self.win.main_path))
+        self.win.save_workspace_tabs()
         self.win.stream_number_variable += 1
         Gtk.Application.do_shutdown(self)
 

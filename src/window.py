@@ -18,6 +18,7 @@ from gi.repository import Gtk, Adw, Pango, Gio, Gdk, GObject, GLib, GdkPixbuf
 from .ui.settings import Settings
 
 from .ui.profile import ProfileDialog
+from .ui.workspaces import WorkspaceWindow
 from .ui.presentation import PresentationWindow
 from .ui.widgets import File, CopyBox, BarChartBox, MarkupTextView, DocumentReaderWidget, TipsCarousel, BrowserWidget, Terminal, CodeEditorWidget, ToolWidget, CallPanel
 from .ui.explorer import ExplorerPanel
@@ -48,7 +49,7 @@ from .controller import NewelleController, ReloadType, NewelleSettings
 from .ui_controller import UIController
 
 
-class MainWindow(Adw.ApplicationWindow):
+class MainWindow(WorkspaceWindow, Adw.ApplicationWindow):
     __gsignals__ = {
         # Emitted once the UI has been built by build_main_window, so other
         # windows (e.g. the mini window) can reparent parts of it
@@ -234,6 +235,7 @@ class MainWindow(Adw.ApplicationWindow):
         )
         self.chats_secondary_box.append(self.chat_panel_header)
         self.chat_panel_header.pack_end(menu_button)
+        self.build_workspace_picker()
         
         # Chat list with navigation-sidebar styling for Adwaita look
         self.chats_buttons_block = Gtk.ListBox(css_classes=["navigation-sidebar"])
@@ -337,7 +339,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.main_program_block.set_show_sidebar(False)
 
         # Add the initial chat tab
-        self.add_chat_tab(self.chat_id)
+        self.restore_workspace_tabs()
+        GLib.idle_add(self.show_workspace_path_notice)
         self.refresh_context_indicator()
 
         def build_model_popup():
@@ -517,7 +520,8 @@ class MainWindow(Adw.ApplicationWindow):
                 # Create window
                 content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
                 content.append(otherview)
-                window = Gtk.Window(child=content, decorated=True)
+                window = Gtk.Window(child=content, decorated=True, application=self.app)
+                window.tab_view = otherview
                 window.set_title(tab.get_title())
                 window.set_size_request(800, 600)
                 tab.connect("notify::title", lambda x, title: window.set_title(x.get_title()))
@@ -567,7 +571,7 @@ class MainWindow(Adw.ApplicationWindow):
             return existing_tab
         
         # Validate chat_id
-        if chat_id not in self.chats:
+        if chat_id not in self.controller.workspace_chats():
             return None
         
         # Create new ChatTab widget
@@ -623,6 +627,8 @@ class MainWindow(Adw.ApplicationWindow):
     
     def _on_chat_tab_switched(self, tab_view, param):
         """Handle chat tab selection changes."""
+        if self._workspace_ui_switching:
+            return
         tab = self.get_active_chat_tab()
         if tab is not None:
             # Update global chat_id to match selected tab
@@ -637,7 +643,7 @@ class MainWindow(Adw.ApplicationWindow):
             if self.controller.newelle_settings.remember_profile and "profile" in self.chats[tab.chat_id]:
                 target_profile = self.chats[tab.chat_id]["profile"]
                 if target_profile != self.current_profile:
-                    GLib.timeout_add(50, lambda: self.switch_profile(target_profile) and False)
+                    GLib.timeout_add(50, self.remember_chat_profile, tab.chat_id)
     
     def _on_chat_tab_close_requested(self, tab_view, page) -> bool:
         """Handle chat tab close request.
@@ -872,9 +878,10 @@ class MainWindow(Adw.ApplicationWindow):
         if ReloadType.LLM in reloads:
             self.reload_buttons()
 
-    def update_settings(self):
+    def update_settings(self, reloads=None):
         """Update settings, run every time the program is started or settings dialog closed"""
-        reloads = self.controller.update_settings()
+        if reloads is None:
+            reloads = self.controller.update_settings()
         self.update_font_settings()
         if ReloadType.WAKEWORD in reloads:
             self.controller.handlers.select_handlers(self.controller.newelle_settings)
@@ -1684,64 +1691,27 @@ class MainWindow(Adw.ApplicationWindow):
         self.switch_profile(action.profile)
 
     def switch_profile(self, profile: str):
-        """Handle profile switching"""
-        if self.current_profile == profile:
+        """Apply profiles as a serialized transition, preserving workspace path/mode."""
+        if not profile or self.current_profile == profile:
             return
-        print(f"Switching profile to {profile}")
-
-        # Reload profiles to pick up any profiles created since last switch
-        self.profile_settings = json.loads(self.settings.get_string("profiles"))
-        if profile not in self.profile_settings:
+        if profile not in json.loads(self.settings.get_string("profiles")):
             return
-
-        # Store the old profile before we change anything
-        old_profile = self.current_profile
-
-        # Update UI immediately for fast visual feedback
-        self.settings.set_string("current-profile", profile)
-        self.current_profile = profile
-        self._update_profile_avatar(profile)
-        self._update_model_label_from_profile(profile)
-
-        # Process pending GTK events to ensure UI updates are rendered
-        # Then start the heavy lifting in background thread
-        GLib.timeout_add(20, lambda: self._switch_profile_async(old_profile, profile) and False)
-
-    def _switch_profile_async(self, old_profile: str, new_profile: str):
-        """Async part of profile switching - spawns background thread for heavy work"""
-        # Spawn thread for the heavy lifting
-        threading.Thread(target=self._do_profile_switch_work, args=(old_profile, new_profile), daemon=True).start()
-        return False  # For GLib.timeout_add
-
-    def _do_profile_switch_work(self, old_profile: str, new_profile: str):
-        """Do the actual profile switch work in background thread"""
-        # Reload profiles first to ensure we have the latest data
-        self.profile_settings = json.loads(self.settings.get_string("profiles"))
-
-        if new_profile not in self.profile_settings:
+        if self.workspace_ui_busy():
+            self.workspace_toast(_("Finish or stop active work before switching profiles."))
             return
+        try:
+            self.controller.begin_workspace_switch()
+        except ValueError as error:
+            self.workspace_toast(str(error))
+            return
+        try:
+            reloads = self.controller.switch_profile(profile)
+            self.update_settings(reloads)
+            self.refresh_profiles_box()
+            self.refresh_mode_buttons()
+        finally:
+            self.controller.workspace_switching = False
 
-        if old_profile in self.profile_settings:
-            # Save old profile's settings before switching
-            groups = self.profile_settings[old_profile].get("settings_groups", [])
-            old_settings = get_settings_dict_by_groups(self.settings, groups, SETTINGS_GROUPS, ["current-profile", "profiles"])
-            self.profile_settings[old_profile]["settings"] = old_settings
-
-        # Get new profile's settings
-        new_settings = self.profile_settings[new_profile].get("settings", {})
-        groups = self.profile_settings[new_profile].get("settings_groups", [])
-
-        # Schedule settings restoration on main thread
-        GLib.idle_add(self._restore_profile_settings, new_settings, groups, new_profile)
-
-    def _restore_profile_settings(self, new_settings: dict, groups: list, profile: str):
-        """Restore profile settings and update state"""
-        restore_settings_from_dict_by_groups(self.settings, new_settings, groups, SETTINGS_GROUPS)
-        self.settings.set_string("profiles", json.dumps(self.profile_settings))
-        # Schedule the UI update on the next iteration of the main loop
-        # This gives GTK a chance to render the changes
-        GLib.idle_add(lambda: self._update_profile_state(profile, groups) and False)
-    
     def _update_profile_state(self, profile: str, groups: list):
         """Update application state for profile switch (optimized - only reloads what changed)
 
@@ -2396,7 +2366,8 @@ class MainWindow(Adw.ApplicationWindow):
 
         new_chat_id = self.controller.create_visible_chat(
             name=parent_chat["name"],
-            profile=parent_chat.get("profile", self.current_profile)
+            profile=parent_chat.get("profile", self.current_profile),
+            workspace_id=parent_chat.get("workspace_id"),
         )
         self.chats[new_chat_id]["chat"] = branched_messages
         self.chats[new_chat_id]["branched_from"] = parent_id
@@ -2423,7 +2394,11 @@ class MainWindow(Adw.ApplicationWindow):
 
     def update_history(self):
         """Reload chats panel with Adwaita-styled ChatRow/FolderRow widgets, supporting folders and branching"""
+        if getattr(self, "_workspace_ui_switching", False):
+            return
         self.focus_input()
+        workspace_chats = self.controller.workspace_chats()
+        workspace_folders = self.controller.workspace_folders()
 
         list_box = Gtk.ListBox(css_classes=["navigation-sidebar"])
         list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
@@ -2445,18 +2420,18 @@ class MainWindow(Adw.ApplicationWindow):
         list_box.add_controller(unfolder_drop)
 
         # Build hierarchy map
-        id_to_chat_id = {chat.get("id"): cid for cid, chat in self.chats.items()}
+        id_to_chat_id = {chat.get("id"): cid for cid, chat in workspace_chats.items()}
         children_map = {}
         top_level_ids = []
 
         # Collect chats that live inside a folder
         foldered_chat_ids = set()
-        for folder in self.controller.folders.values():
+        for folder in workspace_folders.values():
             for cid in folder.get("chat_ids", []):
-                if cid in self.chats:
+                if cid in workspace_chats:
                     foldered_chat_ids.add(cid)
 
-        for cid, chat in self.chats.items():
+        for cid, chat in workspace_chats.items():
             if chat.get("call", False):
                 continue
             parent_id = chat.get("branched_from")
@@ -2471,7 +2446,7 @@ class MainWindow(Adw.ApplicationWindow):
             top_level_ids.reverse()
 
         def add_chat_recursive(chat_id, level=0):
-            if chat_id not in self.chats:
+            if chat_id not in workspace_chats:
                 return
             chat_entry = self.chats[chat_id]
             name = chat_entry["name"]
@@ -2491,6 +2466,7 @@ class MainWindow(Adw.ApplicationWindow):
                 on_clone=self.copy_chat,
                 on_delete=self.remove_chat
             )
+            self.add_workspace_chat_action(chat_row, chat_id)
             list_box.append(chat_row)
             if is_selected:
                 list_box.select_row(chat_row)
@@ -2501,7 +2477,7 @@ class MainWindow(Adw.ApplicationWindow):
                     add_chat_recursive(child_id, level + 1)
 
         # Render folders first
-        for fid, folder in self.controller.folders.items():
+        for fid, folder in workspace_folders.items():
             folder_row = FolderRow(
                 folder_id=fid,
                 folder_name=folder["name"],
@@ -2523,7 +2499,8 @@ class MainWindow(Adw.ApplicationWindow):
         # Render top-level (unfoldered) chats
         for cid in top_level_ids:
             add_chat_recursive(cid)
-    
+        self.save_workspace_tabs()
+
     def on_chat_row_activated(self, listbox, row):
         """Handle chat/folder row activation"""
         if isinstance(row, FolderRow):
@@ -2854,7 +2831,8 @@ class MainWindow(Adw.ApplicationWindow):
         source_chat = self.chats[source_chat_id]
         new_chat_id = self.controller.create_visible_chat(
             name=source_chat["name"],
-            profile=source_chat.get("profile", self.current_profile)
+            profile=source_chat.get("profile", self.current_profile),
+            workspace_id=source_chat.get("workspace_id"),
         )
         self.chats[new_chat_id]["chat"] = source_chat["chat"][:]
         self.chats[new_chat_id]["branched_from"] = source_chat.get("id")
@@ -2865,6 +2843,8 @@ class MainWindow(Adw.ApplicationWindow):
         """Switch to another chat - switches current tab or focuses existing tab"""
         self.return_to_chat_panel(None)
         chat_id = int(id)
+        if chat_id not in self.controller.workspace_chats():
+            return
         
         # Check if this chat is already open in a tab
         existing_tab = self.get_tab_for_chat(chat_id)
@@ -2893,8 +2873,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         # Schedule profile switch to happen after UI renders
         if self.controller.newelle_settings.remember_profile and "profile" in self.chats[chat_id]:
-            target_profile = self.chats[chat_id]["profile"]
-            GLib.timeout_add(500, lambda: self.switch_profile(target_profile) and False)
+            GLib.timeout_add(500, self.remember_chat_profile, chat_id)
 
     def clear_chat(self, button):
         """Delete current chat history in the active tab"""

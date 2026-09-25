@@ -494,6 +494,10 @@ class Settings(Adw.Window):
         self.settings.bind("hide-history-on-launch", switch, 'active', Gio.SettingsBindFlags.DEFAULT)
         self.interface.add(row)
 
+        row = Adw.SwitchRow(title=_("Hide workspace selector"))
+        self.settings.bind("hide-workspaces", row, 'active', Gio.SettingsBindFlags.DEFAULT)
+        self.interface.add(row)
+
         row = Adw.ActionRow(title=_("Remember assistant profile per chat"), subtitle=_("When changing chat, the profile corresponding to the last generation is selected"))
         switch = Gtk.Switch(valign=Gtk.Align.CENTER)
         row.add_suffix(switch)

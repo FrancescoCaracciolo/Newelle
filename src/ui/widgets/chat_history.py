@@ -981,21 +981,27 @@ class ChatHistory(Gtk.Box):
             spacer.set_visible(continuation)
             inner.append(avatar)
             inner.append(spacer)
-            col.append(label)
+            # Keep message actions in the sender/header line.  This gives the
+            # toolbar a dedicated horizontal slot without adding a vertical
+            # band above message content or overlaying controls in the bubble.
+            header = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                hexpand=True,
+                halign=Gtk.Align.FILL,
+            )
+            header.append(label)
+            if toolbar is not None:
+                toolbar.set_halign(Gtk.Align.END)
+                toolbar.set_valign(Gtk.Align.CENTER)
+                toolbar.set_margin_end(8)
+                header.append(toolbar)
+            col.append(header)
             col.append(bubble)
             bubble.sender_widgets = (inner, avatar, spacer, label)
             inner.append(col)
-            # Overlay so the action toolbar floats without affecting layout
-            row = Gtk.Overlay()
-            row.set_child(inner)
             if toolbar is not None:
-                toolbar.set_halign(Gtk.Align.END)
-                toolbar.set_valign(Gtk.Align.START)
-                toolbar.set_margin_top(6)
-                toolbar.set_margin_end(8)
-                row.add_overlay(toolbar)
-                self._wire_row_hover(row, toolbar)
-            return row
+                self._wire_row_hover(inner, toolbar)
+            return inner
 
         if user_type in ("User", "File", "Folder"):
             row = Gtk.Box(
