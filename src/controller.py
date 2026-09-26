@@ -40,7 +40,7 @@ import datetime
 import uuid as uuid_lib
 from .extensions import ExtensionLoader
 from .utility import override_prompts
-from .utility.strings import clean_bot_response, clean_prompt, count_tokens, extract_reasoning_content, get_edited_messages, remove_thinking_blocks
+from .utility.strings import build_chat_title, clean_bot_response, clean_prompt, count_tokens, extract_reasoning_content, get_edited_messages, remove_thinking_blocks
 from .utility.context_manager import ContextManager, TrimResult
 from .utility.replacehelper import PromptFormatter, replace_variables_dict
 from enum import Enum 
@@ -375,7 +375,7 @@ class NewelleController(WorkspaceController):
                 raw = pickle.load(f)
             self._ensure_chats_dict(raw)
         else:
-            self.chats = {0: {"name": _("Chat ") + "1", "chat": []}}
+            self.chats = {0: {"name": _("Chat ") + "1", "chat": [], "name_is_default": True}}
             self.next_chat_id = 1
             self.folders = {}
             self.next_folder_id = 0
@@ -470,6 +470,7 @@ class NewelleController(WorkspaceController):
             raise ValueError(_("Workspace not found."))
         chat_id = self.next_chat_id
         self.next_chat_id += 1
+        has_default_name = name is None
         if name is None:
             name = _("Chat %d") % chat_id
         new_chat = {
@@ -479,6 +480,8 @@ class NewelleController(WorkspaceController):
             "branched_from": None,
             "workspace_id": workspace_id,
         }
+        if has_default_name:
+            new_chat["name_is_default"] = True
         if profile is not None:
             new_chat["profile"] = profile
         self.chats[chat_id] = new_chat
@@ -488,6 +491,45 @@ class NewelleController(WorkspaceController):
         elif self.ui_controller is not None:
             GLib.idle_add(self.ui_controller.update_history)
         return chat_id
+
+    def rename_chat(self, chat_id: int, name: str, save: bool = True):
+        """Rename a chat, clearing the auto-generated-title marker."""
+        if chat_id not in self.chats or not name:
+            return
+        self.chats[chat_id]["name"] = name
+        self.chats[chat_id].pop("name_is_default", None)
+        if save:
+            self.save_chats()
+
+    def name_chat_from_first_message(self, chat_id: int, save: bool = True) -> bool:
+        """Give a chat that still has its auto-generated title the start of its first user message.
+
+        The title is changed once, when the message is sent; later sends do
+        not touch an explicitly renamed chat.
+
+        Args:
+            chat_id: The chat to name
+            save: If True, persist the change immediately
+
+        Returns:
+            True if the chat was renamed
+        """
+        if chat_id not in self.chats:
+            return False
+        chat = self.chats[chat_id]
+        if not chat.get("name_is_default", False) and chat.get("name") != _("Chat %d") % chat_id:
+            return False
+        for message in chat.get("chat", []):
+            if message.get("User") != "User" or message.get("ToolContext"):
+                continue
+            name = build_chat_title(message.get("Message", ""))
+            if not name:
+                continue
+            self.rename_chat(chat_id, name, save=save)
+            if self.ui_controller is not None:
+                GLib.idle_add(self.ui_controller.update_history)
+            return True
+        return False
 
     @workspace_storage
     def create_folder(self, name: str, color: str, icon: str = "folder-symbolic", workspace_id=None) -> int:
@@ -2139,7 +2181,8 @@ class NewelleController(WorkspaceController):
         active_skill_manager = skill_manager if skill_manager is not None else getattr(self, "skill_manager", None)
         msg_uuid = int(uuid_lib.uuid4())
         self.chats[chat_id]["chat"].append({"User": "User", "Message": message, "UUID": msg_uuid})
-        if save_chat:
+        renamed = self.name_chat_from_first_message(chat_id, save=False)
+        if save_chat or renamed:
             self.save_chats()
         audio_turn = self.audio_input.bind_audio_turn(chat_id, is_current)
         message = self.chats[chat_id]["chat"][-1]["Message"]

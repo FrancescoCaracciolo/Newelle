@@ -993,6 +993,8 @@ class ChatTab(Gtk.Box):
             if self._chat_id in self.controller.chats:
                 self.controller.chats[self._chat_id]["profile"] = self.window.current_profile
 
+            self._name_chat_from_first_message()
+
         GLib.timeout_add(200, self.chat_history.scrolled_chat)
         threading.Thread(target=self.send_message).start()
         self.send_button_start_spinner()
@@ -1529,6 +1531,13 @@ class ChatTab(Gtk.Box):
                 Adw.Toast(title=_("You can no longer regenerate the message."), timeout=2)
             )
             
+    def _name_chat_from_first_message(self):
+        """Title a chat that still has its default name with its first message."""
+        if not self.controller.name_chat_from_first_message(self._chat_id):
+            return
+        self._update_tab_title()
+        self.emit("chat-name-changed", self.chat_name)
+
     def generate_chat_name(self):
         """Generate a name for the chat based on content."""
         def generate():
@@ -1540,8 +1549,7 @@ class ChatTab(Gtk.Box):
                 name = name.strip().strip('"').strip("'")
                 name = remove_markdown(name)
                 if self._chat_id in self.controller.chats:
-                    self.controller.chats[self._chat_id]["name"] = name
-                    self.save_chat()
+                    self.controller.rename_chat(self._chat_id, name)
                     GLib.idle_add(self._update_tab_title)
                     GLib.idle_add(self.window.update_history)
                     GLib.idle_add(self.emit,"chat-name-changed", name)
@@ -1704,11 +1712,13 @@ class ChatTab(Gtk.Box):
         text = button.get_child().get_label()
         self.chat.append({"User": "User", "Message": text})
         self.chat_history.show_message(text, id_message=len(self.chat) - 1, is_user=True)
-        
+
         # Store current profile in chat data
         if self._chat_id in self.controller.chats:
             self.controller.chats[self._chat_id]["profile"] = self.window.current_profile
-        
+
+        self._name_chat_from_first_message()
+
         threading.Thread(target=self.send_message).start()
 
     # Suggestions

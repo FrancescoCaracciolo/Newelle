@@ -2806,14 +2806,13 @@ class MainWindow(WorkspaceWindow, Adw.ApplicationWindow):
         def on_entry_activate(entry):
             new_name = entry.get_text().strip()
             if new_name:
-                self.chats[chat_id]["name"] = new_name
-                self.save_chat()
+                self.controller.rename_chat(chat_id, new_name)
 
                 # Update tab title if this chat is open in a tab
                 tab_page = self.get_tab_for_chat(chat_id)
                 if tab_page:
                     tab_page.set_title(new_name)
-                    
+
             self.update_history()
              
         entry.connect("activate", on_entry_activate)
@@ -3281,13 +3280,13 @@ class MainWindow(WorkspaceWindow, Adw.ApplicationWindow):
                     clean_name = remove_markdown(clean_name)
                     if clean_name != "Chat has been stopped":
                         chat_id = int(button.get_name())
-                        self.chats[chat_id]["name"] = clean_name
+                        self.controller.rename_chat(chat_id, clean_name)
 
                         # Update tab title if this chat is open in a tab
                         tab_page = self.get_tab_for_chat(chat_id)
                         if tab_page:
                             tab_page.set_title(clean_name)
-                            
+
                     self.update_history()
 
             GLib.idle_add(on_complete)

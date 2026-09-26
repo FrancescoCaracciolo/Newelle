@@ -388,8 +388,7 @@ class GUIAPIInterface(Interface):
         def api_rename_chat(chat_id: int, req: RenameChatRequest):
             if chat_id not in controller.chats:
                 raise HTTPException(status_code=404, detail="Chat not found")
-            controller.chats[chat_id]["name"] = req.name
-            controller.save_chats()
+            controller.rename_chat(chat_id, req.name)
             return {"status": "ok"}
 
         @app.delete("/api/chats/{chat_id}")
