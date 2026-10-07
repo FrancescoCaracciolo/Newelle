@@ -41,7 +41,9 @@ newelle_sources = [
   'ui_controller.py',
   'tools.py',
   'skills.py',
-  'modes.py'
+  'modes.py',
+  'subagents.py',
+  'subagent_runtime.py'
 ]
 
 integrations_sources = [
@@ -80,6 +82,7 @@ ui_sources = [
   'ui/mcp_catalog.py',
   'ui/skills_catalog.py',
   'ui/skill_creator.py',
+  'ui/subagents.py',
   'ui/extra_settings.py',
   'ui/interfaces.py',
   'ui/build_dependency_warning.py',

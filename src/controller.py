@@ -11,6 +11,8 @@ from .tools import Command, Tool, ToolRegistry, ToolResult
 from .skills import SkillManager
 from .modes import ModeManager, DEFAULT_MODE_NAME
 from .workspaces import WorkspaceController, WorkspaceStorage, shared_workspace_property, workspace_request, workspace_storage
+from .subagents import SubagentManager
+from .subagent_runtime import SubagentSessionRuntime
 from .utility.media import chat_contains_vision, get_image_base64, get_image_path, extract_supported_files
 from .utility.audio_input import AudioInputManager
 from .utility.media import audio_history_text, audio_text, extract_audio, prepend_user_message_context
@@ -115,11 +117,15 @@ class NewelleController(WorkspaceController):
     next_folder_id = shared_workspace_property("next_folder_id")
     scheduled_tasks = shared_workspace_property("scheduled_tasks")
 
-    def chat_ids_ordered(self):
+    def chat_ids_ordered(self, include_calls: bool = False):
         """Return chat IDs in stable chronological order (sorted by ID)."""
         if not hasattr(self, 'chats') or not self.chats:
             return []
-        return sorted(self.workspace_chats())
+        with getattr(self, "chat_state_lock", threading.RLock()):
+            return sorted(
+                chat_id for chat_id, chat in self.workspace_chats().items()
+                if include_calls or not chat.get("call", False)
+            )
 
     def search_conversations(self, query):
         """Return matching workspace chat IDs and plain-text excerpts.
@@ -229,7 +235,9 @@ class NewelleController(WorkspaceController):
             return chat[idx]["Message"]
         return None
 
-    def get_tool_response(self, chat_id, id_message, tool_name, tool_uuid):
+    def get_tool_response(
+        self, chat_id, id_message, tool_name, tool_uuid, strict=False
+    ):
         """Get existing tool response from chat history by tool name and UUID."""
         if not hasattr(self, 'chats') or not self.chats or chat_id not in self.chats:
             return None
@@ -241,7 +249,7 @@ class NewelleController(WorkspaceController):
                 if msg.startswith(f"[Tool: {tool_name}, ID: {tool_uuid}]"):
                     lines = msg.split("\n", 1)
                     return lines[1] if len(lines) > 1 else ""
-                if not msg.startswith("[Tool:"):
+                if not strict and not msg.startswith("[Tool:"):
                     return msg
         return None
 
@@ -308,7 +316,9 @@ class NewelleController(WorkspaceController):
         self.is_call_request = False
         self.scheduled_tasks_lock = self.workspace_storage.scheduled_tasks_lock
         self.save_lock = self.workspace_storage.save_lock
+        self.chat_state_lock = threading.RLock()
         self.scheduler_source_id = None
+        self.subagent_runtime = SubagentSessionRuntime(self)
         self.init_workspace_state()
         if workspace_id is not None:
             self.active_workspace_id = workspace_id
@@ -369,12 +379,25 @@ class NewelleController(WorkspaceController):
         self.mode_manager = ModeManager(self.settings)
         # Merge any modes contributed by already-loaded extensions.
         self.extensionloader.add_modes(self.mode_manager)
+        self.subagent_manager = SubagentManager(
+            self.settings,
+            extension_loader=self.extensionloader,
+            mode_manager=self.mode_manager,
+        )
         self.skill_manager.set_mode_overrides(self.mode_manager.get_active_mode()["skills"])
         self.newelle_settings = NewelleSettings(self.mode_manager)
         self.newelle_settings.load_settings(self.settings)
         loaded_extensions_settings = self.newelle_settings.extensions_settings
         self.load_chats(self.newelle_settings.chat_id)
         self.init_usage_tracking()
+        self.handlers = HandlersManager(
+            self.settings,
+            self.extensionloader,
+            self.models_dir,
+            self.integrationsloader,
+            self,
+        )
+        self.subagent_runtime.recover_sessions()
         self.handlers = HandlersManager(
             self.settings,
             self.extensionloader,
@@ -654,10 +677,17 @@ class NewelleController(WorkspaceController):
             self.folders = {}
             self.next_folder_id = 0
 
-        # Validate chat_id: if not in chats, use first available
-        if self.chats and hasattr(self, 'newelle_settings'):
-            if self.newelle_settings.chat_id not in self.chats:
-                self.newelle_settings.chat_id = min(self.chats.keys())
+        # Always keep at least one visible owner chat. Hidden call/session
+        # transcripts must never become the selected conversation.
+        visible_ids = self.chat_ids_ordered()
+        if not visible_ids:
+            chat_id = self.next_chat_id
+            self.next_chat_id += 1
+            self.chats[chat_id] = {"name": _("Chat ") + "1", "chat": []}
+            visible_ids = [chat_id]
+        if hasattr(self, 'newelle_settings'):
+            if self.newelle_settings.chat_id not in visible_ids:
+                self.newelle_settings.chat_id = visible_ids[0]
 
         self.load_workspaces(raw)
 
@@ -743,7 +773,7 @@ class NewelleController(WorkspaceController):
         self.save_chats()
 
     @workspace_storage
-    def create_call_chat(self, workspace_id=None):
+    def create_call_chat(self, workspace_id=None, name: str | None = None, metadata: dict | None = None):
         """Create a hidden chat in the specified or active workspace."""
         workspace_id = workspace_id or self.active_workspace_id
         if workspace_id not in self.workspaces:
@@ -751,14 +781,30 @@ class NewelleController(WorkspaceController):
         chat_id = self.next_chat_id
         self.next_chat_id += 1
         new_chat = {
-            "name": _("Call ") + str(chat_id),
+            "name": name or (_("Call ") + str(chat_id)),
             "chat": [],
             "workspace_id": workspace_id,
             "call": True
         }
+        if metadata:
+            new_chat.update(copy.deepcopy(metadata))
         self.chats[chat_id] = new_chat
         self.save_chats()
         return chat_id
+
+    def cleanup_owner_sessions(self, owner_chat_id: int) -> int:
+        """Delete hidden subagent sessions belonging to a main chat."""
+        return self.subagent_runtime.cleanup_owner_sessions(owner_chat_id)
+
+    def delete_chat(self, chat_id: int) -> bool:
+        """Delete a chat and any durable subagent sessions it owns."""
+        if chat_id not in self.chats or self.chats[chat_id].get("subagent_session"):
+            return False
+        self.subagent_runtime.delete_owner_sessions(chat_id)
+        self.remove_chat_from_folder(chat_id, save=False)
+        del self.chats[chat_id]
+        self.save_chats()
+        return True
 
     def create_voice_chat(self):
         """Create a hidden one-shot Voice Mode chat."""
@@ -805,6 +851,7 @@ class NewelleController(WorkspaceController):
         if profile is not None:
             new_chat["profile"] = profile
         self.chats[chat_id] = new_chat
+
         self.save_chats()
         if folder_id is not None and folder_id in self.folders:
             self.move_chat_to_folder(chat_id, folder_id)
@@ -1557,6 +1604,9 @@ class NewelleController(WorkspaceController):
         if "modes" in refreshes and hasattr(self, "mode_manager"):
             new_loader.add_modes(self.mode_manager)
 
+        if "subagents" in refreshes and hasattr(self, "subagent_manager"):
+            self.subagent_manager.reload_extensions(new_loader)
+
         if "tools" in refreshes or active_handlers_changed:
             self.require_tool_update()
             refreshes.add("tools")
@@ -1636,10 +1686,14 @@ class NewelleController(WorkspaceController):
         """
         self.extensionloader = extensionloader
         self.handlers.extensionloader = extensionloader
+        if hasattr(self, "subagent_manager"):
+            self.subagent_manager.reload_extensions(extensionloader)
 
     def set_integrationsloader(self, integrationsloader):
         self.integrationsloader = integrationsloader
         self.handlers.integrationsloader = integrationsloader
+        for integration in integrationsloader.get_extensions():
+            integration.runtime_controller = self
 
     def get_mcp_integration(self):
         if self.integrationsloader is not None:
@@ -1726,6 +1780,11 @@ class NewelleController(WorkspaceController):
         skills_integration = self.integrationsloader.extensionsmap.get("skills")
         if skills_integration is not None and hasattr(self, "skill_manager"):
             skills_integration.set_skill_manager(self.skill_manager)
+        # Integrations normally reach the controller through the GTK
+        # UIController.  Runtime-capable integrations also need a direct path
+        # when Newelle is serving a headless interface.
+        for integration in self.integrationsloader.get_extensions():
+            integration.runtime_controller = self
         self.integrationsloader.add_tools(self.tools)
         self.set_ui_controller(self.ui_controller)
 
@@ -1852,10 +1911,10 @@ class NewelleController(WorkspaceController):
         Returns:
             dict: Export data in JSON format, or None if chat_id invalid
         """
-        if chat_id not in self.chats:
-            return None
-
-        chat_data = self.chats[chat_id]
+        with self.chat_state_lock:
+            if chat_id not in self.chats or self.chats[chat_id].get("call", False):
+                return None
+            chat_data = copy.deepcopy(self.chats[chat_id])
         export_data = {
             "version": "1.0",
             "export_metadata": {
@@ -1884,7 +1943,9 @@ class NewelleController(WorkspaceController):
             dict: Export data in JSON format
         """
         chats_list = []
-        for _cid, chat_data in self.workspace_chats().items():
+        with self.chat_state_lock:
+            chat_items = copy.deepcopy(list(self.workspace_chats().items()))
+        for _cid, chat_data in chat_items:
             chat_entry = {
                 "name": chat_data["name"],
                 "profile": chat_data.get("profile", None),
@@ -2570,6 +2631,10 @@ class NewelleController(WorkspaceController):
         on_tool_start_callback: Callable[[str], None] = None,
         on_intermediate_message_callback: Callable[[str], None] = None,
         is_current: Callable[[], bool] | None = None,
+        model: LLMHandler | None = None,
+        tools_settings: dict | None = None,
+        expanded_tools: set[str] | None = None,
+        stop_generation_event: threading.Event | None = None,
     ) -> str:
         """Run LLM with tool support integration.
 
@@ -2590,10 +2655,16 @@ class NewelleController(WorkspaceController):
                 postprocess_history hooks on the history and final response, mirroring
                 generate_response. Set to False to bypass extension processing.
             mode_name: Optional request-local Newelle Mode. It controls prompts,
-                tool exposure, and Skills without changing ``current-mode``.
+            tool exposure, and Skills without changing ``current-mode``.
             on_tool_start_callback: Called immediately before each tool executes.
             on_intermediate_message_callback: Called with assistant text emitted
                 before one or more tool calls are executed.
+            model: Explicit model handler for this run. It remains selected even
+                if a tool changes the active mode.
+            tools_settings: Per-run tool customisation/lazy-loading settings.
+            expanded_tools: Per-run set of lazy tool schemas already expanded.
+            stop_generation_event: Event that ends the turn after the current
+                model/tool operation, used for turn-based subagent messaging.
 
         Returns:
             Final message from the LLM
@@ -2631,6 +2702,19 @@ class NewelleController(WorkspaceController):
             self.save_chats()
         audio_turn = self.audio_input.bind_audio_turn(chat_id, is_current)
         message = self.chats[chat_id]["chat"][-1]["Message"]
+        active_tools_settings = (
+            tools_settings
+            if tools_settings is not None
+            else self.newelle_settings.tools_settings_dict
+        )
+        active_expanded_tools = (
+            expanded_tools if expanded_tools is not None else self.expanded_tools
+        )
+        if stop_generation_event is None:
+            stop_generation_event = threading.Event()
+        explicit_model = model is not None
+        if model is None:
+            model = self.get_model_for_chat(self.chats[chat_id]["chat"])
         skills_integration = None
         original_skill_manager = None
         if hasattr(self, "integrationsloader") and active_skill_manager is not None:
@@ -2681,7 +2765,9 @@ class NewelleController(WorkspaceController):
             if mode_manager is not None
             else None
         )
-        model = self.get_model_for_chat(self.chats[chat_id]["chat"])
+        explicit_model = model is not None
+        if model is None:
+            model = self.get_model_for_chat(self.chats[chat_id]["chat"])
         cont = True
         iteration = 0
         tool_call_count = 0
@@ -2692,7 +2778,7 @@ class NewelleController(WorkspaceController):
         try:
             while True:
                 full_response = ""
-                if not cont:
+                if not cont or stop_generation_event.is_set():
                     break
                 cont = False
 
@@ -2734,7 +2820,8 @@ class NewelleController(WorkspaceController):
                         enabled_tool_names = {
                             tool.name for tool in self.get_enabled_tools(current_mode_name)
                         }
-                    model = self.get_model_for_chat(self.chats[chat_id]["chat"])
+                    if not explicit_model:
+                        model = self.get_model_for_chat(self.chats[chat_id]["chat"])
 
                 def stream_callback(text: str):
                     nonlocal full_response
@@ -2921,6 +3008,7 @@ class NewelleController(WorkspaceController):
                         and isinstance(tool_args, dict)
                         and tool_args.get("tool_name")
                     ):
+                        active_expanded_tools.add(tool_args["tool_name"])
                         system_prompt = active_tool_registry.expand_tool_in_prompts(
                             system_prompt, tool_args["tool_name"]
                         )
@@ -2941,7 +3029,7 @@ class NewelleController(WorkspaceController):
                         # schema was fetched, hand back the schema instead of
                         # running it with guessed arguments, and mark it expanded.
                         redirect = active_tool_registry.maybe_redirect_lazy_tool(
-                            tool_name, request_settings.tools_settings_dict, self.expanded_tools
+                            tool_name, active_tools_settings, active_expanded_tools
                         )
                         if redirect is not None:
                             # Native tool calling needs the full schema next turn.
@@ -2973,6 +3061,8 @@ class NewelleController(WorkspaceController):
                                 tool_result_output = result.get_output()
                                 tool_context_messages = result.get_context_messages()
                                 tool_display_text = getattr(result, "display_text", None)
+                                if getattr(result, "stop_generation", False):
+                                    stop_generation_event.set()
                                 if tool_result_output is not None or tool_context_messages:
                                     cont = True
                             elif result is not None:
@@ -3022,6 +3112,12 @@ class NewelleController(WorkspaceController):
                                 "ToolContext": True,
                             })
                         self.save_chats()
+
+                    if stop_generation_event.is_set():
+                        break
+
+                if stop_generation_event.is_set():
+                    return text_content.strip()
 
                 if tool_call_count >= max_tool_calls:
                     final_synthesis_turn = True

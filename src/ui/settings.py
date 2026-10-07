@@ -24,6 +24,7 @@ from .extension import ExtensionPage
 from .interfaces import InterfacesPage
 from .usage import UsagePage
 from .extra_settings import ExtraSettingsBuilder
+from .subagents import SubagentsPage
 from .widgets import ComboRowHelper, CopyBox 
 from .widgets import MultilineEntry
 from ..utility.system import (
@@ -81,6 +82,7 @@ class Settings(Adw.Window):
         self.MemoryPage = Adw.PreferencesPage(icon_name="vcard-symbolic", title=_("Knowledge"))
         self.VoicePage = Adw.PreferencesPage(icon_name="audio-input-microphone-symbolic", title=_("Voice"))
         self.SkillsPage = Adw.PreferencesPage(icon_name="skills-symbolic", title=_("Skills"))
+        self.SubagentsPage = SubagentsPage(controller, self)
         self.MCPPage = Adw.PreferencesPage(icon_name="internet-symbolic", title=_("MCP Servers"))
         self.UsagePage = UsagePage(controller)
         # Dictionary containing all the rows for settings update
@@ -801,6 +803,7 @@ class Settings(Adw.Window):
             ("Tools", _("Tools"), "tools-symbolic", self.ToolsPage),
             ("Permissions", _("Permissions"), "key-symbolic", self.PermissionsPage),
             ("Skills", _("Skills"), "skills-symbolic", self.SkillsPage),
+            ("Subagents", _("Subagents"), "system-users-symbolic", self.SubagentsPage),
             ("MCP", _("MCP Servers"), "internet-symbolic", self.MCPPage),
             ("Interfaces", _("Interfaces"), "controls-big-symbolic", self.InterfacesPage),
             ("Extensions", _("Extensions"), "extension-symbolic", self.ExtensionsPage),
@@ -877,6 +880,8 @@ class Settings(Adw.Window):
             self.ensure_permissions_page_initialized()
         elif page == self.SkillsPage:
             self.ensure_skills_page_initialized()
+        elif page == self.SubagentsPage:
+            self.SubagentsPage.ensure_initialized()
         elif page == self.MCPPage:
             self.ensure_mcp_page_initialized()
         elif page == self.UsagePage:
@@ -923,6 +928,8 @@ class Settings(Adw.Window):
             self.refresh_llm_rows()
         if "tools" in refreshes and self.tools_page_initialized:
             self.refresh_tools_list()
+        if "subagents" in refreshes and self.SubagentsPage.initialized:
+            self.SubagentsPage.refresh()
         if "prompts" in refreshes:
             self.custom_prompts = self.controller.newelle_settings.custom_prompts
             self.prompts_settings = self.controller.newelle_settings.prompts_settings
