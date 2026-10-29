@@ -2127,6 +2127,17 @@ class NewelleController(WorkspaceController):
         apply_profile_settings(self.settings, profiles, profile_name, SETTINGS_GROUPS)
         return True
 
+    def restore_current_profile(self):
+        """Load the saved values of the current profile into the live settings.
+
+        Profile switches are not persisted to GSettings, so after a restart the
+        stored profile keys can belong to a different profile than
+        ``current-profile``. The saved profile is the source of truth; keeping
+        the stale values would overwrite its own groups on the next save.
+        """
+        profiles = self._load_profiles()
+        apply_profile_settings(self.settings, profiles, self.settings.get_string("current-profile"), SETTINGS_GROUPS)
+
     def update_current_profile(self):
         """Save the live settings into the current profile and the profiles it inherits from"""
         self.current_profile = self.settings.get_string("current-profile")
