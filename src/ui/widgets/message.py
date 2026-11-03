@@ -9,7 +9,7 @@ import tempfile
 import socket
 from gi.repository import Gtk, GLib, Pango, Gio, Gdk
 
-from ...utility.message_chunk import get_message_chunks, MessageChunk, normalize_tool_arguments
+from ...utility.message_chunk import get_message_chunks, MessageChunk, normalize_tool_arguments, replace_inline_latex
 from ...utility.source_attribution import CitationSource, extract_source_section
 from ...utility.strings import markwon_to_pango, remove_thinking_blocks, simple_markdown_to_pango, quote_string, add_S_to_sudo
 from ...utility.system import get_spawn_command, open_in_external_terminal
@@ -1553,6 +1553,7 @@ class Message(Gtk.Box):
             cells = row.strip("|").split("|")
             data.append([cell.strip() for cell in cells])
         model = Gtk.ListStore(*[str] * len(data[0]))
+        latex_to_text = LatexNodes2Text().latex_to_text
         for row in data[1:]:
             if not all(len(element.replace(":", "").replace(" ", "").replace("-", "").strip()) == 0 for element in row):
                 # Ensure row matches number of columns
@@ -1564,7 +1565,7 @@ class Message(Gtk.Box):
                 
                 r = []
                 for element in row: 
-                    r.append(simple_markdown_to_pango(LatexNodes2Text().latex_to_text(element)))
+                    r.append(simple_markdown_to_pango(replace_inline_latex(element, latex_to_text)))
                 model.append(r)
         treeview = Gtk.TreeView(model=model, css_classes=["toolbar", "view", "transparent"])
 
