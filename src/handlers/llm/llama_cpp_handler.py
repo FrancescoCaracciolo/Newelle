@@ -42,7 +42,7 @@ class LlamaCPPHandler(OpenAIHandler):
     def update_library_cache(self):
         url = "https://raw.githubusercontent.com/FrancescoCaracciolo/llm-library-scraper/refs/heads/main/lmstudio/model_list.json"
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             data = response.json()
             cache_path = self.get_cache_path()
             with open(cache_path, "w") as f:
@@ -348,7 +348,7 @@ class LlamaCPPHandler(OpenAIHandler):
         start_time = time.time()
         while time.time() - start_time < 60: # 60 seconds timeout
             try:
-                if requests.get(url).status_code == 200:
+                if requests.get(url, timeout=1).status_code == 200:
                     return True
             except:
                 pass

@@ -822,7 +822,7 @@ class ChatHistory(Gtk.Box):
                 self._finalize_message_display()
             GLib.idle_add(self.scrolled_chat)
             if not restore:
-                self.controller.save_chats()
+                self.controller.schedule_save()
             return None
 
         # Handle error messages
@@ -843,7 +843,7 @@ class ChatHistory(Gtk.Box):
                 ),
             )
             GLib.idle_add(self.scrolled_chat)
-            self.controller.save_chats()
+            self.controller.schedule_save()
             return None
 
         # Initialize message UUID for assistant messages
@@ -887,7 +887,7 @@ class ChatHistory(Gtk.Box):
 
         if not restore:
             self._finalize_message_display()
-            self.controller.save_chats()
+            self.controller.schedule_save()
             
         return None
 
@@ -1337,7 +1337,7 @@ class ChatHistory(Gtk.Box):
         self.chat[int(gesture.get_name())]["Message"] = entry.get_text()
         self._tool_call_cache.clear()
         self._tool_chain_starts.clear()
-        self.controller.save_chats()
+        self.controller.schedule_save()
         content_box.remove(entry)
         content_box.append(
             self.show_message(
@@ -1625,7 +1625,7 @@ class ChatHistory(Gtk.Box):
             self.messages_box[:] = [item for item in self.messages_box
                                     if item is not row and item.get_ancestor(Gtk.ListBoxRow) is not row]
             self.chat_list_block.remove(row)
-        self.controller.save_chats()
+        self.controller.schedule_save()
         if not self.chat:
             self.show_placeholder()
         self.update_button_text()

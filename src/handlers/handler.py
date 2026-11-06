@@ -100,6 +100,15 @@ class SettingsCache:
 
     @staticmethod
     def get_instance(settings):
+        # A snapshot is created for every chat request. Registering it in the
+        # class-level dict would keep each snapshot (and its cache) alive
+        # forever, so its cache lives on the snapshot instead.
+        if isinstance(settings, SettingsSnapshot):
+            cache = settings.__dict__.get("_settings_cache")
+            if cache is None:
+                cache = SettingsCache(settings)
+                settings.__dict__["_settings_cache"] = cache
+            return cache
         if settings not in SettingsCache._instances:
             SettingsCache._instances[settings] = SettingsCache(settings)
         return SettingsCache._instances[settings]

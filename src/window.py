@@ -1,6 +1,3 @@
-from select import select
-from tldextract.tldextract import update
-from pylatexenc.latex2text import LatexNodes2Text
 import time
 import re
 import sys
@@ -740,7 +737,7 @@ class MainWindow(WorkspaceWindow, Adw.ApplicationWindow):
                 return True  # Prevent close, we'll handle it via new_chat
             child.remember_draft()
             child.chat_history.cancel_loading()
-            self.controller.save_chats()
+            self.controller.schedule_save()
         
         return False  # Allow close
     
@@ -3083,7 +3080,7 @@ class MainWindow(WorkspaceWindow, Adw.ApplicationWindow):
         )
         self.chats[new_chat_id]["chat"] = source_chat["chat"][:]
         self.chats[new_chat_id]["branched_from"] = source_chat.get("id")
-        self.controller.save_chats()
+        self.controller.schedule_save()
         self.update_history()
 
     def chose_chat(self, id, *a):
@@ -3453,7 +3450,7 @@ class MainWindow(WorkspaceWindow, Adw.ApplicationWindow):
          
         def on_convert_to_chat(call_panel):
             self.controller.chats[call_panel.chat_id]["call"] = False
-            self.controller.save_chats()
+            self.controller.schedule_save()
             self.update_history()
             self.show_sidebar()
         
