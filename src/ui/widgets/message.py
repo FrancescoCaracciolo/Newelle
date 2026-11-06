@@ -1615,7 +1615,7 @@ class Message(Gtk.Box):
         self.streaming = False
 
         for chunk_type, widget, _chunk in self.widgets_map:
-            if chunk_type == "text" and not isinstance(widget, list):
+            if chunk_type == "text" and isinstance(widget, Gtk.Label):
                 self._stop_stream_fade(widget)
         
         if self.thinking_widget:
@@ -1640,7 +1640,7 @@ class Message(Gtk.Box):
         self.state["should_continue"] = False
 
         for chunk_type, widget, _chunk in self.widgets_map:
-            if chunk_type == "text" and not isinstance(widget, list):
+            if chunk_type == "text" and isinstance(widget, Gtk.Label):
                 self._stop_stream_fade(widget)
 
         if self.thinking_widget:
