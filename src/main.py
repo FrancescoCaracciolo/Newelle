@@ -305,6 +305,36 @@ class MyApp(Adw.Application):
           outline-offset: -2px;
           border-radius: 12px;
         }
+
+        .new-chat-logo {
+          -gtk-icon-shadow: 0 4px 16px alpha(black, 0.18);
+        }
+
+        .tip-card {
+          padding: 14px 16px;
+          border-radius: 12px;
+        }
+
+        .tip-card-icon {
+          color: @accent_color;
+        }
+
+        .tip-card label {
+          font-weight: normal;
+        }
+
+        .tip-card .heading {
+          font-weight: bold;
+        }
+
+        .placeholder-suggestion {
+          padding: 10px 16px;
+          border-radius: 12px;
+        }
+
+        .placeholder-suggestion label {
+          font-weight: normal;
+        }
         '''
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(css, -1)
