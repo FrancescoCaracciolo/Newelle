@@ -99,6 +99,14 @@ class TTSHandler(Handler):
             except Exception as exc:
                 print(f"TTS {signal} callback error: {exc}")
 
+    def on_start(self):
+        """Notify listeners that playback has started."""
+        self._emit("start")
+
+    def on_stop(self):
+        """Notify listeners that playback has stopped."""
+        self._emit("stop")
+
     def playsound(self, path):
         """Play an audio from the given path, handling incorrect file extensions"""
         import mimetypes
@@ -107,7 +115,7 @@ class TTSHandler(Handler):
         if self._play_cancelled():
             self._play_lock.release()
             return
-        self._emit("start")
+        self.on_start()
         try:
             p = Popen(["ffplay", "-nodisp", "-autoexit", "-hide_banner", path])
             self.play_process = p
@@ -116,7 +124,7 @@ class TTSHandler(Handler):
         except Exception as e:
             print("Error playing the audio: " + str(e))
             pass
-        self._emit("stop")
+        self.on_stop()
         self.play_process = None
         self._play_lock.release()
      
@@ -194,7 +202,7 @@ class TTSHandler(Handler):
         if self._play_cancelled():
             self._play_lock.release()
             return
-        self._emit("start")
+        self.on_start()
 
         ffmpeg_process = None
         ffplay_process = None
@@ -249,7 +257,7 @@ class TTSHandler(Handler):
                     except Exception:
                         pass
             self.play_process = None
-            self._emit("stop")
+            self.on_stop()
             self._play_lock.release()
 
     def get_stream_format_args(self) -> list:

@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-	<id>io.github.qwersyk.Newelle</id>
+	<id>moe.nyarchlinux.assistant</id>
 	<metadata_license>CC0-1.0</metadata_license>
 	<project_license>GPL-3.0-or-later</project_license>
-        <launchable type="desktop-id">io.github.qwersyk.Newelle.desktop</launchable>
-        <name>Newelle</name>
+        <launchable type="desktop-id">moe.nyarchlinux.assistant.desktop</launchable>
+        <name>Nyarch Assistant</name>
 	<description>
-	  <p>Train Newelle to do more with custom extensions and new AI modules, giving your chatbot endless possibilities.</p>
+	  <p>Your personal waifu always at your service to help you with your system!</p>
 	</description>
-	<summary>AI chatbot</summary>
+	<summary>Your AI-Powered System Assistant</summary>
 	<screenshots>
 		<screenshot type="default">
 			<image>https://raw.githubusercontent.com/qwersyk/Newelle/master/data/screenshots/1.jpg</image>
@@ -43,11 +43,11 @@
     		<color type="primary" scheme_preference="light">#99c1f1</color>
     		<color type="primary" scheme_preference="dark">#003d81</color>
   	</branding>
-	<url type="homepage">https://newelle.qsk.me</url>
-  	<url type="vcs-browser">https://github.com/qwersyk/Newelle</url>
-	<url type="bugtracker">https://github.com/qwersyk/Newelle/issues</url>
-	<developer id="io.github.qwersyk">
-		<name>Qwersyk</name>
+	<url type="homepage">https://github.com/NyarchLinux/NyarchAssistant</url>
+  	<url type="vcs-browser">https://github.com/NyarchLinux/NyarchAssistant</url>
+	<url type="bugtracker">https://github.com/NyarchLinux/NyarchAssistant/issues</url>
+	<developer id="moe.nyarchlinux">
+		<name>Nyarch Linux</name>
 	</developer>
 	<content_rating type="oars-1.1" />
 	<releases>
@@ -394,62 +394,62 @@
         </release>
 	    <release version="0.4.1" date="2024-11-16">
             <description>
-                <p>Updated the g4f library with versioning, added user guides, improved extension browsing, and enhanced model handling.</p>
+                Updated the g4f library with versioning, added user guides, improved extension browsing, and enhanced model handling.
             </description>
         </release>
 	    <release version="0.4.0" date="2024-11-02">
             <description>
-                <p>Bug fixes and new features have been implemented. We've modified the extension architecture, added new models, and introduced vision support, along with more capabilities.</p>
+                Bug fixes and new features have been implemented. We've modified the extension architecture, added new models, and introduced vision support, along with more capabilities.
             </description>
         </release>
 	    <release version="0.3.1" date="2024-09-28">
             <description>
-                <p>Bug fixes</p>
+                Bug fixes
             </description>
         </release>
 	    <release version="0.3" date="2024-08-28">
             <description>
-                <p>Bug fixes</p>
+                Bug fixes
             </description>
         </release>
  		<release version="0.2.2" date="2024-08-06">
 			<description>
-				<p>Bug fixes</p>
+				Bug fixes
 			</description>
 		</release>
  		 <release version="0.2.1" date="2024-08-03">
 			<description>
-				<p>Bug fixes</p>
+				Bug fixes
 			</description>
 		</release>
  		<release version="0.2.0" date="2024-08-03">
 			<description>
-				<p>Bug fixes</p>
+				Bug fixes
 			</description>
 		</release>
 		<release version="0.1.7" date="2023-07-11">
 			<description>
-				<p>Stable version</p>
+				Stable version
 			</description>
 		</release>
 		<release version="0.1.6" date="2023-07-08">
 			<description>
-				<p>Added extension</p>
+				Added extension
 			</description>
 		</release>
 		<release version="0.1.5" date="2023-07-04">
 			<description>
-				<p>Blacklist of commands</p>
+				Blacklist of commands
 			</description>
 		</release>
 		<release version="0.1.4" date="2023-06-30">
 			<description>
-				<p>Localization</p>
+				Localization
 			</description>
 		</release>
 		<release version="0.1.3" date="2023-06-25">
 			<description>
-				<p>Redesign</p>
+				Redesign
 			</description>
 		</release>
 	</releases>

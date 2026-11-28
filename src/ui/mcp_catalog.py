@@ -43,7 +43,7 @@ from .extensions_catalog import (
 _ = gettext.gettext
 
 CATALOG_SCHEMA_VERSION = 1
-CATALOG_RESOURCE = "/io/github/qwersyk/Newelle/mcp_servers.json"
+CATALOG_RESOURCE = "/moe/nyarchlinux/assistant/mcp_servers.json"
 DEFAULT_CATALOG_URL = (
     "https://raw.githubusercontent.com/qwersyk/Newelle/master/data/mcp_servers.json"
 )
@@ -1419,7 +1419,7 @@ class ConnectApplicationView(Gtk.Box):
                 automatic_setup_row = Adw.ActionRow(
                     title=_("Use automatic setup"),
                     subtitle=_(
-                        "Clone the server into Newelle's MCP folder and run it from there"
+                        "Clone the server into Nyarch Assistant's MCP folder and run it from there"
                     ),
                     icon_name="system-run-symbolic",
                 )
@@ -1484,7 +1484,7 @@ class ConnectApplicationView(Gtk.Box):
             warning = Adw.ActionRow(
                 title=_("Runs a local command"),
                 subtitle=_(
-                    "Newelle will run this command on your host when you connect. "
+                    "Nyarch Assistant will run this command on your host when you connect. "
                     "Review it before continuing."
                 ),
                 icon_name="warning-outline-symbolic",
@@ -1582,7 +1582,7 @@ class ConnectApplicationView(Gtk.Box):
         extension = _get_extension_config(application)
         extension_group = Adw.PreferencesGroup(title=_("Extension"))
         extension_description = extension.get("description") or _(
-            "This will download and install a third-party Newelle extension."
+            "This will download and install a third-party Nyarch Assistant extension."
         )
         extension_group.add(
             Adw.ActionRow(
@@ -1694,7 +1694,7 @@ class ConnectApplicationView(Gtk.Box):
                     if not check.get("is_extension"):
                         raise ExtensionCatalogError(
                             check.get("error") or _(
-                                "The downloaded file is not a Newelle extension"
+                                "The downloaded file is not a Nyarch Assistant extension"
                             )
                         )
                     task.update(

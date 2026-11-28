@@ -105,7 +105,7 @@ class DependencyManagerWindow(Adw.Window):
         toolbar.add_top_bar(self.search_bar)
 
         self.banner = Adw.Banner(
-            title=_("Restart Newelle to apply the dependency changes"),
+            title=_("Restart Nyarch Assistant to apply the dependency changes"),
             revealed=False,
         )
         toolbar.add_top_bar(self.banner)
@@ -674,7 +674,7 @@ class DependencyManagerWindow(Adw.Window):
 
         group.add(self._action_row(
             _("Remove All Dependencies"),
-            _("Delete every optional package installed by Newelle"),
+            _("Delete every optional package installed by Nyarch Assistant"),
             _("Remove All"),
             ["destructive-action"],
             self.confirm_remove_all,

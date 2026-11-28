@@ -354,7 +354,7 @@ class OllamaHandler(LLMHandler):
             ExtraSettings.EntrySetting("api", _("API Key"), _("Ollama API key"), "", password=True),
             ExtraSettings.EntrySetting("endpoint", _("API Endpoint"), _("API base url, change this to use interference APIs"), "http://localhost:11434"),
             ExtraSettings.ToggleSetting("serve", _("Automatically Serve"), _("Automatically run ollama serve in background when needed if it's not running. You can kill it with killall ollama"), False),
-            ExtraSettings.ToggleSetting("native_tool_calling", _("Native Tool Calling"), _("Enable native tool calling (Will use API's tool calling formatting instead of Newelle's. Disable only if you have issues with tool calling or the model you are using does not support it natively)"), True),
+            ExtraSettings.ToggleSetting("native_tool_calling", _("Native Tool Calling"), _("Enable native tool calling (Will use API's tool calling formatting instead of Nyarch Assistant's. Disable only if you have issues with tool calling or the model you are using does not support it natively)"), True),
             ExtraSettings.ToggleSetting("custom_model", _("Custom Model"), _("Use a custom model"), False, update_settings=True),
         ]
         if not self.get_setting("custom_model", False):

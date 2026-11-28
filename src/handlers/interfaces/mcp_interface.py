@@ -136,7 +136,7 @@ class MCPInterface(Interface):
             ExtraSettings.ToggleSetting(
                 key="only_enabled_tools",
                 title=_("Only expose enabled tools"),
-                description=_("Expose only the tools that are currently enabled in Newelle; tools disabled in the app are hidden from MCP clients"),
+                description=_("Expose only the tools that are currently enabled in Nyarch Assistant; tools disabled in the app are hidden from MCP clients"),
                 default=False,
             ),
             ExtraSettings.NestedSetting(
@@ -346,7 +346,7 @@ class MCPInterface(Interface):
             # options to map onto an elicitation form.
             return refuse(
                 _(
-                    "Tool '{name}' requires free-form input that can only be provided in the Newelle app and is not supported through MCP."
+                    "Tool '{name}' requires free-form input that can only be provided in the Nyarch Assistant app and is not supported through MCP."
                 ).format(name=name)
             )
         try:

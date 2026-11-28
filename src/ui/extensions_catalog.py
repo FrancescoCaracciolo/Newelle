@@ -345,7 +345,7 @@ def inspect_python_source(content):
         "is_python": True,
         "is_extension": True,
         "class_names": class_names,
-        "error": _("Newelle extension"),
+        "error": _("Nyarch Assistant extension"),
     }
 
 
@@ -807,7 +807,7 @@ class ExtensionMarketplaceView(Gtk.Box):
             margin_end=12,
         )
         self.search_entry = Gtk.SearchEntry(
-            placeholder_text=_("Search Newelle extensions"), hexpand=True
+            placeholder_text=_("Search Nyarch Assistant extensions"), hexpand=True
         )
         self.search_entry.connect("search-changed", self._on_search_changed)
         self.search_entry.connect("activate", lambda _entry: self._search_now())
@@ -1175,7 +1175,7 @@ class ExtensionMarketplaceView(Gtk.Box):
             ),
         )
         for item in self.detail_files:
-            status = _("Valid Newelle extension") if item.get("is_extension") else item.get("error", _("Rejected"))
+            status = _("Valid Nyarch Assistant extension") if item.get("is_extension") else item.get("error", _("Rejected"))
             row = Adw.ActionRow(title=item["path"], subtitle=status)
             default_selected = (
                 repository.get("source_kind") == "release"

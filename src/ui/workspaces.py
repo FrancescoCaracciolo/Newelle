@@ -200,7 +200,7 @@ class WorkspaceWindow:
     def refresh_workspace_picker(self):
         workspace = self.controller.active_workspace
         self._workspace_configuration = (workspace.get("profile"), workspace["path"], workspace["mode"])
-        self.set_title(_("Newelle — {workspace}").format(workspace=workspace["name"]))
+        self.set_title(_("Nyarch Assistant — {workspace}").format(workspace=workspace["name"]))
         content = Gtk.Box(spacing=10)
         content.append(self._workspace_avatar(workspace))
         labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)

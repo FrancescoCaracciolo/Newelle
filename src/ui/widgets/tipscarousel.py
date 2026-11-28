@@ -41,7 +41,7 @@ class TipsCarousel(Gtk.Box):
         header = Gtk.Box(spacing=8, halign=Gtk.Align.START, margin_start=4)
         header_icon = Gtk.Image(icon_name="dialog-information-symbolic", css_classes=["tip-card-icon"])
         header.append(header_icon)
-        tips_label = Gtk.Label(label=_("Newelle Tips"), css_classes=["heading", "dim-label"])
+        tips_label = Gtk.Label(label=_("Nyarch Assistant Tips"), css_classes=["heading", "dim-label"])
         header.append(tips_label)
 
         self.append(header)

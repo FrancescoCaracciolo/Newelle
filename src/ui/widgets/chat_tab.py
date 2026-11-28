@@ -1641,15 +1641,23 @@ class ChatTab(Gtk.Box):
         
         # TTS
         tts_thread = None
+        
         if self.tts_enabled:
             message = clean_message_tts(
                 message_label,
                 quoted_only=self.controller.newelle_settings.tts_quoted_only,
             )
-            if message.strip() and not message.isspace():
-                tts_thread = threading.Thread(
-                    target=self.tts.play, args=(message,)
-                )
+            if message.strip():
+                # Translate the message
+                translator = None
+                if self.controller.newelle_settings.translation_enabled:
+                    translator = self.controller.handlers.translator          
+                if self.controller.newelle_settings.avatar_enabled and self.controller.handlers.avatar is not None:
+                    tts_thread = threading.Thread(target=self.controller.handlers.avatar.speak_with_tts, args=(message, self.tts, translator))
+                else:
+                    if translator is not None:
+                        message = translator.translate(message)
+                    tts_thread = threading.Thread(target=self.tts.play, args=(message, ))
                 tts_thread.start()
         
         if self._send_next_pending():

@@ -201,7 +201,7 @@ class GeminiHandler(LLMHandler):
             ExtraSettings.ToggleSetting(
                 "native_tool_calling",
                 _("Native Tool Calling"),
-                _("Enable native tool calling (Will use Gemini's tool calling API instead of Newelle's text-based format. Disable only if you have issues with tool calling)"),
+                _("Enable native tool calling (Will use Gemini's tool calling API instead of Nyarch Assistant's text-based format. Disable only if you have issues with tool calling)"),
                 True
             ),
             ExtraSettings.ButtonSetting(

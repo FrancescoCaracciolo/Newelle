@@ -163,7 +163,7 @@ class ScheduledTasksWindow(Gtk.Window):
 
         self.tasks_group = Adw.PreferencesGroup(
             title=_("Scheduled Agent Runs"),
-            description=_("These tasks only run while Newelle is open."),
+            description=_("These tasks only run while Nyarch Assistant is open."),
         )
         self.main.append(self.tasks_group)
         self._task_rows = []

@@ -16,7 +16,7 @@ class ProfileDialog(Adw.PreferencesDialog):
         
         editing = False
         if profile_name is None:
-            self.profile_name = "Assistant " + str(len(self.profile_settings) + 1)
+            self.profile_name = f"{ROOT_PROFILE} " + str(len(self.profile_settings) + 1)
         else:
             editing = True
             self.original_name = profile_name
@@ -183,13 +183,13 @@ class ProfileDialog(Adw.PreferencesDialog):
         self.parent.show_transfer_profile_settings(target=self.original_name)
 
     def export_profile(self, button):
-        filter = Gtk.FileFilter(name=_("Newelle Profiles"), patterns=["*.np", "*.json"]) 
+        filter = Gtk.FileFilter(name=_("Nyarch Assistant Profiles"), patterns=["*.np", "*.json"]) 
         dialog = Gtk.FileDialog(accept_label=_("Export"), title=_("Export Profile"), default_filter=filter)
         dialog.set_initial_name(self.original_name + ".np")
         dialog.save(self.parent, None, self.export_profile_file)
 
     def import_profile(self, button):
-        filter = Gtk.FileFilter(name=_("Newelle Profiles"), patterns=["*.np", "*.json"])
+        filter = Gtk.FileFilter(name=_("Nyarch Assistant Profiles"), patterns=["*.np", "*.json"])
         dialog = Gtk.FileDialog(accept_label=_("Import"), title=_("Import Profile"), default_filter=filter)
         dialog.open(self.parent, None, self.import_profile_file)
 
@@ -281,7 +281,7 @@ class ProfileDialog(Adw.PreferencesDialog):
             self.avatar.set_text(profile_name)
         else:
             self.avatar.set_text(
-                "Assistant " + str(len(self.profile_settings) + 1)
+                f"{ROOT_PROFILE} " + str(len(self.profile_settings) + 1)
             )
 
     def on_avatar_clicked(self, gesture, n_press, x, y):

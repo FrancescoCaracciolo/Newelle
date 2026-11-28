@@ -86,7 +86,7 @@ class OllamaCloudHandler(OllamaHandler):
 
         settings += self.get_thinking_settings()
         settings += [
-            ExtraSettings.ToggleSetting("native_tool_calling", _("Native Tool Calling"), _("Enable native tool calling (Will use API's tool calling formatting instead of Newelle's. Disable only if you have issues with tool calling or the model you are using does not support it natively)"), True),
+            ExtraSettings.ToggleSetting("native_tool_calling", _("Native Tool Calling"), _("Enable native tool calling (Will use API's tool calling formatting instead of Nyarch Assistant's. Disable only if you have issues with tool calling or the model you are using does not support it natively)"), True),
             get_streaming_extra_setting(),
         ]
         return settings

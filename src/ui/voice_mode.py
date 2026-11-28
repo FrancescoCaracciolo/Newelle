@@ -666,7 +666,7 @@ class VoiceModeWindow(Gtk.Window):
         self._feedback_interactive = False
         self._feedback_title = _("Action required")
 
-        self.set_title(_("Newelle Voice Mode"))
+        self.set_title(_("Nyarch Assistant Voice Mode"))
         self.set_decorated(False)
         self.set_resizable(False)
         self.set_focusable(False)

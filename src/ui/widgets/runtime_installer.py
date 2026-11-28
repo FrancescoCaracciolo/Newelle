@@ -14,7 +14,7 @@ from ..build_dependency_warning import BuildDependencyWarning
 
 SANDBOX_COMMAND = (
     "flatpak --user override --talk-name=org.freedesktop.Flatpak "
-    "--filesystem=home io.github.qwersyk.Newelle"
+    "--filesystem=home moe.nyarchlinux.assistant"
 )
 
 

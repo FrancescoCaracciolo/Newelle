@@ -1,6 +1,6 @@
 #!@PYTHON@
 
-# newelle.in
+# nyarchassistant.in
 #
 # Copyright 2023 Yehor Qwersyk
 #
@@ -32,12 +32,12 @@ localedir = '@localedir@'
 
 sys.path.insert(1, pkgdatadir)
 signal.signal(signal.SIGINT, signal.SIG_DFL)
-locale.bindtextdomain('newelle', localedir)
-locale.textdomain('newelle')
-gettext.install('newelle', localedir)
+locale.bindtextdomain('nyarchassistant', localedir)
+locale.textdomain('nyarchassistant')
+gettext.install('nyarchassistant', localedir)
 
 def parse_args():
-    parser = argparse.ArgumentParser(prog='newelle', add_help=False)
+    parser = argparse.ArgumentParser(prog='nyarchassistant', add_help=False)
     parser.add_argument('--interface', '-I', metavar='INTERFACE',
                         help='Start an interface without the GUI (e.g. api, gui-api)')
     parser.add_argument('--list-interfaces', action='store_true',
@@ -75,7 +75,7 @@ def forward_voice_request(arguments):
             '/org/freedesktop/DBus',
             'org.freedesktop.DBus',
             'GetNameOwner',
-            GLib.Variant('(s)', ('io.github.qwersyk.Newelle',)),
+            GLib.Variant('(s)', ('moe.nyarchlinux.assistant',)),
             GLib.VariantType.new('(s)'),
             Gio.DBusCallFlags.NO_AUTO_START,
             1000,
@@ -98,7 +98,7 @@ def forward_voice_request(arguments):
         # to launch another instance or deliver the toggle to a replacement.
         connection.call_sync(
             owner,
-            '/io/github/qwersyk/Newelle',
+            '/moe/nyarchlinux/assistant',
             'org.freedesktop.Application',
             'ActivateAction',
             GLib.Variant('(sava{sv})', ('voice_mode', [], platform_data)),
@@ -152,8 +152,8 @@ if __name__ == '__main__':
     import gi
 
     from gi.repository import Gio
-    resource = Gio.Resource.load(os.path.join(pkgdatadir, 'newelle.gresource'))
+    resource = Gio.Resource.load(os.path.join(pkgdatadir, 'nyarchassistant.gresource'))
     resource._register()
 
-    from newelle import main
+    from nyarchassistant import main
     sys.exit(main.main(VERSION))

@@ -107,7 +107,7 @@ class ExtensionPage(Adw.PreferencesPage):
                 Adw.ActionRow(
                     title=_("Third-party extensions"),
                     subtitle=_(
-                        "Extensions are created by third-party users. Newelle does not review or control their code."
+                        "Extensions are created by third-party users. Nyarch Assistant does not review or control their code."
                     ),
                     icon_name="dialog-warning-symbolic",
                 )
@@ -290,14 +290,14 @@ class ExtensionPage(Adw.PreferencesPage):
         dialog.set_body_use_markup(True)
         dialog.set_body(
             _(
-                "Newelle does not have enough permissions to run commands on your system, please run the following command"
+                "Nyarch Assistant does not have enough permissions to run commands on your system, please run the following command"
             )
         )
         dialog.add_response("close", _("Understood"))
         dialog.set_default_response("close")
         dialog.set_extra_child(
             CopyBox(
-                "flatpak --user override --talk-name=org.freedesktop.Flatpak --filesystem=home io.github.qwersyk.Newelle",
+                "flatpak --user override --talk-name=org.freedesktop.Flatpak --filesystem=home moe.nyarchlinux.assistant",
                 "bash",
             )
         )

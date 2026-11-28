@@ -94,6 +94,7 @@ class OpenAIHandler(LLMHandler):
                 self.set_setting("context_lengths", json.dumps(context_lengths))
                 self.settings_update()
             except Exception as e:
+                raise e
                 if manual:
                     self.throw("Error getting " + self.key + " models: " + str(e), ErrorSeverity.WARNING)
                 print("Error getting " + self.key + " models: " + str(e))
@@ -263,7 +264,7 @@ class OpenAIHandler(LLMHandler):
             settings += privacy_notice
         if has_tool_calling_option:
             settings += [
-                ExtraSettings.ToggleSetting("native_tool_calling", _("Native Tool Calling"), _("Enable native tool calling (Will use API's tool calling formatting instead of Newelle's. Disable only if you have issues with tool calling or the model you are using does not support it natively)"), supports_tool_calling)
+                ExtraSettings.ToggleSetting("native_tool_calling", _("Native Tool Calling"), _("Enable native tool calling (Will use API's tool calling formatting instead of Nyarch Assistant's. Disable only if you have issues with tool calling or the model you are using does not support it natively)"), supports_tool_calling)
             ]
         if has_audio_input_option:
             settings.append(ExtraSettings.ToggleSetting(

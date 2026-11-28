@@ -1,6 +1,6 @@
 desktop_file = i18n.merge_file(
-        input: 'io.github.qwersyk.Newelle.desktop.in',
-       output: 'io.github.qwersyk.Newelle.desktop',
+        input: 'moe.nyarchlinux.assistant.desktop.in',
+       output: 'moe.nyarchlinux.assistant.desktop',
          type: 'desktop',
        po_dir: '../po',
       install: true,
@@ -13,8 +13,8 @@ if desktop_utils.found()
 endif
 
 appstream_file = i18n.merge_file(
-        input: 'io.github.qwersyk.Newelle.metainfo.xml.in',
-       output: 'io.github.qwersyk.Newelle.metainfo.xml',
+        input: 'moe.nyarchlinux.assistant.metainfo.xml.in',
+       output: 'moe.nyarchlinux.assistant.metainfo.xml',
        po_dir: '../po',
       install: true,
   install_dir: join_paths(get_option('datadir'), 'metainfo')
@@ -25,7 +25,7 @@ test('Validate appstream file',
      appstreamcli,
      args: ['validate', '--no-net', '--explain', appstream_file])
 
-install_data('io.github.qwersyk.Newelle.gschema.xml',
+install_data('moe.nyarchlinux.assistant.gschema.xml',
   install_dir: join_paths(get_option('datadir'), 'glib-2.0/schemas')
 )
 
